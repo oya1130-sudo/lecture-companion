@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lecture-companion"
+version = "0.2.0"
+description = "강의 자료와 선배 자료를 근거로 태블릿용 수업 동반 HTML을 만드는 도구"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "google-api-python-client>=2.160.0",
+  "google-auth-oauthlib>=1.2.1",
+  "pydantic>=2.10.0",
+  "PyMuPDF>=1.26.0",
+  "pypdf>=6.0.0",
+  "PyYAML>=6.0.2",
+  "reportlab>=4.2.5",
+  "streamlit>=1.62.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0"]
+
+[project.scripts]
+prestudy = "prestudy.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

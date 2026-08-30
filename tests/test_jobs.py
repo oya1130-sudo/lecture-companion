@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import threading
+import time
+from pathlib import Path
+
+import prestudy.jobs as jobs_module
+from prestudy.jobs import JobManager
+from prestudy.models import LectureRequest
+
+
+class FakeEngine:
+    def __init__(self, model="") -> None:
+        self.model = model
+
+
+class FakeService:
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def __init__(self, engine) -> None:
+        self.engine = engine
+
+    def create(self, lecture, sources, output_path, progress):
+        with self.lock:
+            type(self).active += 1
+            type(self).max_active = max(type(self).max_active, type(self).active)
+        progress("테스트 생성 중")
+        time.sleep(0.05)
+        output_path.write_text("<html>done</html>", encoding="utf-8")
+        with self.lock:
+            type(self).active -= 1
+
+
+def test_job_manager_runs_multiple_jobs_without_blocking(tmp_path: Path, monkeypatch):
+    FakeService.active = 0
+    FakeService.max_active = 0
+    monkeypatch.setattr(jobs_module, "CodexStudyEngine", FakeEngine)
+    monkeypatch.setattr(jobs_module, "StudyGuideService", FakeService)
+    drive_root = tmp_path / "drive"
+    manager = JobManager(max_workers=2, drive_output_root=drive_root)
+    lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
+
+    manager.submit("job-a", lecture, [], tmp_path / "a.html")
+    manager.submit("job-b", lecture, [], tmp_path / "b.html")
+
+    deadline = time.monotonic() + 2
+    snapshots = manager.snapshots()
+    while time.monotonic() < deadline and any(item.status != "complete" for item in snapshots):
+        time.sleep(0.01)
+        snapshots = manager.snapshots()
+    manager.executor.shutdown(wait=True)
+
+    assert {item.status for item in snapshots} == {"complete"}
+    assert FakeService.max_active == 2
+    assert (tmp_path / "a.html").is_file()
+    assert (tmp_path / "b.html").is_file()
+    assert (drive_root / "02. 약리학" / "a.html").is_file()
+    assert (drive_root / "02. 약리학" / "b.html").is_file()
+    assert all(item.drive_path is not None for item in snapshots)
+
+
+def test_drive_failure_keeps_local_result_complete(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(jobs_module, "CodexStudyEngine", FakeEngine)
+    monkeypatch.setattr(jobs_module, "StudyGuideService", FakeService)
+    blocked_drive_path = tmp_path / "not-a-folder"
+    blocked_drive_path.write_text("blocked", encoding="utf-8")
+    manager = JobManager(max_workers=1, drive_output_root=blocked_drive_path)
+    lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
+    local_output = tmp_path / "local.html"
+
+    manager.submit("job-local", lecture, [], local_output)
+
+    deadline = time.monotonic() + 2
+    snapshot = manager.snapshots()[0]
+    while time.monotonic() < deadline and snapshot.status != "complete":
+        time.sleep(0.01)
+        snapshot = manager.snapshots()[0]
+    manager.executor.shutdown(wait=True)
+
+    assert snapshot.status == "complete"
+    assert local_output.is_file()
+    assert snapshot.drive_path is None
+    assert snapshot.drive_error

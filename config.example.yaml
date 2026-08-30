@@ -1,0 +1,20 @@
+# Google Drive에서 매일 일괄 생성할 때 사용하는 예시입니다.
+# 폴더 URL 전체를 붙여 넣어도 되고 폴더 ID만 적어도 됩니다.
+output_dir: output
+# 생략하거나 비워두면 Codex의 기본 모델을 사용합니다.
+model: ''
+common_guides_folder: "GOOGLE_DRIVE_FOLDER_ID"
+# 폴더에 다른 파일이 많다면 파일명에 공통으로 들어가는 문자열을 적습니다.
+common_guides_match: "학습가이드"
+
+lectures:
+  - course: 약리학
+    professor: 김자은
+    topic: Pharmacokinetics 2 & metabolism
+    lecture_date: "2026-08-29"
+    jokchek_folder: "GOOGLE_DRIVE_FOLDER_ID"
+    jokchek_match: "Pharmacokinetics-2&metabolism"
+    summary_folder: "GOOGLE_DRIVE_FOLDER_ID"
+    summary_match: "약동학2 및 약물대사"
+    # same: 교수·내용 동일 / partial: 일부 변경 / changed: 많이 변경 / unknown: 모름
+    summary_reliability: partial

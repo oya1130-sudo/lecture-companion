@@ -1,0 +1,6 @@
+# 개인 PDF 경로는 default-guides.yaml에 작성하세요.
+# 실제 default-guides.yaml은 Git과 공유 ZIP에서 제외됩니다.
+common_guides:
+  - 'C:\path\to\guide-1.pdf'
+  - 'C:\path\to\guide-2.pdf'
+  - 'C:\path\to\guide-3.pdf'

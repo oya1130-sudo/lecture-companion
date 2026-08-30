@@ -1,0 +1,73 @@
+# 수업 동반 노트 생성기
+
+학습가이드, 족첵, 선배 써머리 PDF를 분석해 수업 중 강의록 옆에 띄워 볼 수 있는 단일 HTML 노트를 만듭니다. 강의자료 페이지 순서에 맞춘 필기 대체 노트, 강조점, 들을 포인트, 최소 현장 메모를 제공합니다.
+
+OpenAI API 키를 사용하지 않습니다. 각 사용자가 자기 ChatGPT 계정으로 로그인한 Codex CLI의 구독 사용량을 사용합니다. Codex는 ChatGPT 로그인과 API 키 로그인을 모두 지원하지만, 이 프로그램은 API 키 로그인을 거부합니다. 공식 안내는 [Codex CLI](https://developers.openai.com/codex/cli)와 [OpenAI 인증](https://developers.openai.com/codex/auth)을 참고하세요.
+
+## 주요 기능
+
+- 여러 강의 작업을 큐에 넣고 제한적으로 병렬 처리
+- PDF별 분석 결과와 완성 노트 캐시
+- 태블릿에서 같은 Wi-Fi 주소로 접속
+- 메인 노트북에 마운트된 Google Drive 족첵·써머리를 직접 검색·선택
+- 완성 HTML을 로컬과 Google Drive 과목별 폴더에 자동 저장
+- PDF 자료와 브라우저 메모를 외부 서버에 따로 저장하지 않는 로컬 실행 구조
+
+## Windows 빠른 시작
+
+필요한 항목:
+
+- Windows 10 또는 11
+- Python 3.11 이상
+- Codex CLI 또는 OpenAI Codex VS Code 확장
+- Codex를 사용할 수 있는 ChatGPT 계정
+
+배포 ZIP을 원하는 폴더에 압축 해제하고 `start-app.cmd`를 더블클릭합니다. 최초 실행에는 전용 가상환경과 Python 패키지를 설치하므로 몇 분 걸릴 수 있습니다. Codex 로그인이 없다면 브라우저 로그인 흐름이 시작됩니다.
+
+처음 열린 화면에서 `기본 학습가이드 확인·교체`를 펼쳐 자신의 학습가이드 PDF를 넣고 `선택한 파일을 이 PC의 기본 학습가이드로 저장`을 누릅니다. 이 PDF와 경로 설정은 개인 데이터 영역인 `data`에 저장되며 Git과 공유 ZIP에서 제외됩니다.
+
+자세한 초보자 안내는 [QUICKSTART.md](QUICKSTART.md)를 참고하세요.
+
+## Google Drive
+
+Google Drive 데스크톱 앱이 연결되어 있고 다음 폴더명이 존재하면 자동 탐색합니다.
+
+- `2026 본과 1-2 족첵`
+- `써머리부`
+- `내 드라이브`
+
+앱에서 과목을 선택하면 해당 과목 폴더의 PDF만 검색합니다. 자동 탐색이 되지 않으면 `PRESTUDY_JOKCHEK_ROOT`, `PRESTUDY_SUMMARY_ROOT`, `PRESTUDY_DRIVE_OUTPUT` 환경변수에 전체 경로를 지정할 수 있습니다. Drive가 없어도 `기기에서 업로드`와 로컬 HTML 다운로드는 사용할 수 있습니다.
+
+## 저장 구조
+
+- `output`: 로컬 완성 HTML
+- `data`: 개인 학습가이드와 개인 설정
+- `.prestudy-cache`: 재사용 가능한 분석 캐시
+- `.prestudy-work`: 격리된 Codex 작업 폴더
+- Google Drive `수업 동반 노트/01. 병리학` 등: 동기화되는 완성본
+
+완성 파일명은 `MMDD 과목명 교수명 강의주제 수업동반노트.html` 형식입니다. 같은 이름이 있으면 `(2)`처럼 번호를 붙입니다.
+
+## 개발
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Windows 배포 ZIP 생성:
+
+```powershell
+.\build-share-package.ps1
+```
+
+구조와 데이터 흐름은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), GitHub 게시 절차는 [docs/GITHUB.md](docs/GITHUB.md)를 참고하세요.
+
+## 공유 전 주의
+
+PDF 원본, 완성 노트, Google OAuth 파일, Codex 로그인 캐시는 공유하면 안 됩니다. `.gitignore`와 배포 스크립트가 이를 제외하지만 게시 전 `git status`와 ZIP 내용을 다시 확인하세요. 이 앱은 인증 없는 로컬 네트워크 서버이므로 공용 인터넷에 직접 노출하지 마세요. 자세한 내용은 [SECURITY.md](SECURITY.md)에 있습니다.
+
+## 라이선스
+
+아직 오픈소스 라이선스를 선택하지 않았습니다. 비공개 GitHub 저장소나 지인 대상 ZIP 공유는 가능하지만, 공개 저장소에서 재사용·수정 권한을 명확히 하려면 MIT, Apache-2.0 등 원하는 라이선스를 선택해 `LICENSE`를 추가하세요.
