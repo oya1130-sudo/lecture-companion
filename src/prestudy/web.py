@@ -16,6 +16,7 @@ from .storage import (
     COURSE_DRIVE_FOLDERS,
     DRIVE_OUTPUT_ROOT,
     GUIDES_ROOT,
+    JOB_STATE_PATH,
     JOKCHEK_DRIVE_ROOT,
     OUTPUT_ROOT,
     STORAGE_ROOT,
@@ -36,10 +37,10 @@ CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "2")
 
 
 @st.cache_resource
-def _job_manager(config_version: str = "course-drive-folders-v2") -> JobManager:
+def _job_manager(config_version: str = "persistent-jobs-v1") -> JobManager:
     # Bump config_version when shared worker construction changes so a hot
     # reload cannot keep an older JobManager instance alive.
-    return JobManager()
+    return JobManager(state_path=JOB_STATE_PATH)
 
 
 @st.cache_data(ttl="5m", max_entries=4, show_spinner=False)
@@ -60,6 +61,14 @@ def _local_ip() -> str:
             return "127.0.0.1"
     finally:
         sock.close()
+
+
+def _is_cloud_deployment() -> bool:
+    return os.environ.get("PRESTUDY_DEPLOYMENT_MODE", "").strip().casefold() == "cloud"
+
+
+def _public_url() -> str:
+    return os.environ.get("PRESTUDY_PUBLIC_URL", "").strip().rstrip("/")
 
 
 def _save_uploads(files, folder: Path) -> list[Path]:
@@ -264,7 +273,7 @@ def run() -> None:
 
     guide_paths, guide_config = _configured_guides()
     manager = _job_manager()
-    network_url = f"http://{_local_ip()}:8501"
+    cloud_deployment = _is_cloud_deployment()
 
     with st.sidebar:
         st.header("접속과 실행 상태")
@@ -274,14 +283,26 @@ def run() -> None:
             st.warning(f"학습가이드 {len(guide_paths)}개만 확인됨")
         else:
             st.error("기본 학습가이드를 찾지 못함")
-        st.info(f"같은 Wi-Fi 기기에서 접속\n\n{network_url}")
-        st.caption("메인 노트북이 켜져 있고 프로그램 창이 실행 중이어야 합니다. Windows 방화벽 창이 뜨면 개인 네트워크를 허용하세요.")
+        if cloud_deployment:
+            st.success("클라우드 서버에서 실행 중")
+            if public_url := _public_url():
+                st.info(f"태블릿과 다른 기기에서 접속\n\n{public_url}")
+            else:
+                st.info("Tailscale Serve 주소를 설정하면 태블릿 접속 주소가 여기에 표시됩니다.")
+            st.caption("서버와 비공개 네트워크가 실행 중이면 노트북을 꺼도 작업이 계속됩니다.")
+        else:
+            network_url = f"http://{_local_ip()}:8501"
+            st.info(f"같은 Wi-Fi 기기에서 접속\n\n{network_url}")
+            st.caption("메인 노트북이 켜져 있고 프로그램 창이 실행 중이어야 합니다. Windows 방화벽 창이 뜨면 개인 네트워크를 허용하세요.")
         st.caption(f"HTML 저장 위치\n{OUTPUT_ROOT}")
         if DRIVE_OUTPUT_ROOT is not None:
             st.success("Google Drive 자동 저장 켜짐")
             st.caption(f"Drive 저장 위치\n{DRIVE_OUTPUT_ROOT}")
         else:
-            st.warning("Google Drive 자동 저장 폴더를 찾지 못했습니다.")
+            if cloud_deployment:
+                st.caption("Google Drive가 서버에 연결되지 않아 완성본은 영구 디스크에 저장됩니다.")
+            else:
+                st.warning("Google Drive 자동 저장 폴더를 찾지 못했습니다.")
 
         model = ""
         with st.expander("고급 설정"):
@@ -310,7 +331,7 @@ def run() -> None:
             key="replacement-guides",
         )
         if st.button(
-            "선택한 파일을 이 PC의 기본 학습가이드로 저장",
+            "선택한 파일을 기본 학습가이드로 저장",
             disabled=not replacement_guides,
             width="stretch",
         ):
@@ -346,7 +367,7 @@ def run() -> None:
     drive_summary_values: list[str] = []
     if source_mode == "Google Drive에서 선택":
         if not drive_available:
-            st.error("메인 노트북에서 족첵 Google Drive 폴더를 찾지 못했습니다. 기기 업로드를 사용해 주세요.")
+            st.error("서버에서 족첵 Google Drive 폴더를 찾지 못했습니다. 기기 업로드를 사용해 주세요.")
         elif not course:
             st.info("과목을 선택하면 Google Drive의 족첵과 선배 써머리 목록이 나타납니다.")
         else:
@@ -357,7 +378,7 @@ def run() -> None:
                 else []
             )
             st.caption(
-                f"메인 노트북의 Google Drive에서 {course} 족첵 {len(jokchek_options)}개, "
+                f"서버의 Google Drive에서 {course} 족첵 {len(jokchek_options)}개, "
                 f"써머리 {len(summary_options)}개를 찾았습니다. 파일명 일부를 입력해 검색할 수 있습니다."
             )
             left, right = st.columns(2)

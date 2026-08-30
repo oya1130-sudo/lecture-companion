@@ -1,0 +1,29 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        CODEX_RELEASE: ${CODEX_RELEASE:-latest}
+    image: lecture-companion:local
+    restart: unless-stopped
+    init: true
+    stdin_open: true
+    tty: true
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      PRESTUDY_HOME: /data
+      PRESTUDY_DEPLOYMENT_MODE: cloud
+      PRESTUDY_PUBLIC_URL: ${PRESTUDY_PUBLIC_URL:-}
+      PRESTUDY_CODEX_MODEL: ${PRESTUDY_CODEX_MODEL:-}
+      PRESTUDY_JOB_WORKERS: ${PRESTUDY_JOB_WORKERS:-3}
+      PRESTUDY_SOURCE_WORKERS: ${PRESTUDY_SOURCE_WORKERS:-2}
+      PRESTUDY_CODEX_CONCURRENCY: ${PRESTUDY_CODEX_CONCURRENCY:-2}
+      CODEX_HOME: /data/codex
+    volumes:
+      - lecture-data:/data
+    stop_grace_period: 2m
+
+volumes:
+  lecture-data:
+    name: lecture-companion-data

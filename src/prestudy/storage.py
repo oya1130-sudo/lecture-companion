@@ -60,6 +60,7 @@ OUTPUT_ROOT = STORAGE_ROOT / "output"
 CACHE_ROOT = STORAGE_ROOT / ".prestudy-cache"
 WORK_ROOT = STORAGE_ROOT / ".prestudy-work"
 DOWNLOAD_ROOT = STORAGE_ROOT / "downloads"
+JOB_STATE_PATH = STORAGE_ROOT / "jobs.json"
 DRIVE_OUTPUT_ROOT = _default_drive_output_root()
 JOKCHEK_DRIVE_ROOT = _default_drive_source_root("PRESTUDY_JOKCHEK_ROOT", "2026 본과 1-2 족첵")
 SUMMARY_DRIVE_ROOT = _default_drive_source_root("PRESTUDY_SUMMARY_ROOT", "써머리부")

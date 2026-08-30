@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import threading
@@ -8,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from .ai import CodexStudyEngine
 from .models import LectureRequest, SourceDocument
@@ -42,11 +44,14 @@ class _Job:
     drive_error: str = ""
     error: str = ""
     lock: threading.RLock = field(default_factory=threading.RLock)
+    on_change: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
     def log(self, message: str) -> None:
         with self.lock:
             self.messages.append(message)
             self.messages = self.messages[-30:]
+        if self.on_change is not None:
+            self.on_change()
 
     def snapshot(self) -> JobSnapshot:
         with self.lock:
@@ -69,6 +74,7 @@ class JobManager:
         self,
         max_workers: int | None = None,
         drive_output_root: Path | str | None = DRIVE_OUTPUT_ROOT,
+        state_path: Path | str | None = None,
     ) -> None:
         workers = max(1, max_workers or int(os.environ.get("PRESTUDY_JOB_WORKERS", "3")))
         self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lecture-job")
@@ -77,6 +83,77 @@ class JobManager:
         self.drive_lock = threading.RLock()
         self.max_workers = workers
         self.drive_output_root = Path(drive_output_root) if drive_output_root is not None else None
+        self.state_path = Path(state_path) if state_path is not None else None
+        self._load_state()
+
+    @staticmethod
+    def _serialize(snapshot: JobSnapshot) -> dict:
+        return {
+            "job_id": snapshot.job_id,
+            "label": snapshot.label,
+            "status": snapshot.status,
+            "messages": snapshot.messages,
+            "output_path": str(snapshot.output_path),
+            "drive_path": str(snapshot.drive_path) if snapshot.drive_path is not None else None,
+            "drive_error": snapshot.drive_error,
+            "error": snapshot.error,
+            "created_at": snapshot.created_at.isoformat(),
+            "finished_at": snapshot.finished_at.isoformat() if snapshot.finished_at is not None else None,
+        }
+
+    def _save_state(self) -> None:
+        if self.state_path is None:
+            return
+        with self.lock:
+            snapshots = [job.snapshot() for job in self.jobs.values()]
+            payload = json.dumps(
+                {"version": 1, "jobs": [self._serialize(item) for item in snapshots]},
+                ensure_ascii=False,
+                indent=2,
+            )
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.state_path.with_suffix(f"{self.state_path.suffix}.tmp")
+            temporary.write_text(payload, encoding="utf-8")
+            temporary.replace(self.state_path)
+
+    def _load_state(self) -> None:
+        if self.state_path is None or not self.state_path.is_file():
+            return
+        try:
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+            for item in data.get("jobs", []):
+                status = str(item["status"])
+                messages = [str(value) for value in item.get("messages", [])][-30:]
+                error = str(item.get("error", ""))
+                finished_at = (
+                    datetime.fromisoformat(item["finished_at"])
+                    if item.get("finished_at")
+                    else None
+                )
+                if status in {"queued", "running"}:
+                    status = "failed"
+                    error = "서버가 재시작되어 작업이 중단되었습니다. 다시 제출해 주세요."
+                    messages.append(error)
+                    finished_at = datetime.now()
+                job = _Job(
+                    job_id=str(item["job_id"]),
+                    label=str(item["label"]),
+                    status=status,
+                    messages=messages,
+                    output_path=Path(item["output_path"]),
+                    drive_path=Path(item["drive_path"]) if item.get("drive_path") else None,
+                    drive_error=str(item.get("drive_error", "")),
+                    error=error,
+                    created_at=datetime.fromisoformat(item["created_at"]),
+                    finished_at=finished_at,
+                    on_change=self._save_state,
+                )
+                self.jobs[job.job_id] = job
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            # A damaged history file must not prevent the app from starting.
+            self.jobs = {}
+            return
+        self._save_state()
 
     def new_id(self) -> str:
         return uuid.uuid4().hex[:12]
@@ -89,9 +166,15 @@ class JobManager:
         output_path: Path,
         model: str = "",
     ) -> JobSnapshot:
-        job = _Job(job_id=job_id, label=f"{lecture.course} · {lecture.topic}", output_path=output_path)
+        job = _Job(
+            job_id=job_id,
+            label=f"{lecture.course} · {lecture.topic}",
+            output_path=output_path,
+            on_change=self._save_state,
+        )
         with self.lock:
             self.jobs[job_id] = job
+        self._save_state()
         self.executor.submit(self._run, job, lecture, sources, model)
         return job.snapshot()
 
@@ -113,6 +196,7 @@ class JobManager:
             with job.lock:
                 job.status = "complete"
                 job.finished_at = datetime.now()
+            self._save_state()
         except Exception as exc:
             with job.lock:
                 job.status = "failed"

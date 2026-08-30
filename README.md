@@ -12,6 +12,7 @@ OpenAI API 키를 사용하지 않습니다. 각 사용자가 자기 ChatGPT 계
 - 메인 노트북에 마운트된 Google Drive 족첵·써머리를 직접 검색·선택
 - 완성 HTML을 로컬과 Google Drive 과목별 폴더에 자동 저장
 - PDF 자료와 브라우저 메모를 외부 서버에 따로 저장하지 않는 로컬 실행 구조
+- 개인용 클라우드 VM에서 노트북을 꺼도 계속 실행하는 Docker 배포
 
 ## Windows 빠른 시작
 
@@ -24,7 +25,7 @@ OpenAI API 키를 사용하지 않습니다. 각 사용자가 자기 ChatGPT 계
 
 배포 ZIP을 원하는 폴더에 압축 해제하고 `start-app.cmd`를 더블클릭합니다. 최초 실행에는 전용 가상환경과 Python 패키지를 설치하므로 몇 분 걸릴 수 있습니다. Codex 로그인이 없다면 브라우저 로그인 흐름이 시작됩니다.
 
-처음 열린 화면에서 `기본 학습가이드 확인·교체`를 펼쳐 자신의 학습가이드 PDF를 넣고 `선택한 파일을 이 PC의 기본 학습가이드로 저장`을 누릅니다. 이 PDF와 경로 설정은 개인 데이터 영역인 `data`에 저장되며 Git과 공유 ZIP에서 제외됩니다.
+처음 열린 화면에서 `기본 학습가이드 확인·교체`를 펼쳐 자신의 학습가이드 PDF를 넣고 `선택한 파일을 기본 학습가이드로 저장`을 누릅니다. 이 PDF와 경로 설정은 개인 데이터 영역인 `data`에 저장되며 Git과 공유 ZIP에서 제외됩니다.
 
 자세한 초보자 안내는 [QUICKSTART.md](QUICKSTART.md)를 참고하세요.
 
@@ -38,12 +39,27 @@ Google Drive 데스크톱 앱이 연결되어 있고 다음 폴더명이 존재�
 
 앱에서 과목을 선택하면 해당 과목 폴더의 PDF만 검색합니다. 자동 탐색이 되지 않으면 `PRESTUDY_JOKCHEK_ROOT`, `PRESTUDY_SUMMARY_ROOT`, `PRESTUDY_DRIVE_OUTPUT` 환경변수에 전체 경로를 지정할 수 있습니다. Drive가 없어도 `기기에서 업로드`와 로컬 HTML 다운로드는 사용할 수 있습니다.
 
+## 개인용 클라우드 VM
+
+Docker를 실행할 수 있는 Linux VM에 앱과 Codex CLI를 함께 올리고, Tailscale을 통해 태블릿과 다른 기기에서 안전하게 접속할 수 있습니다. 클라우드 배포에서는 업로드, 캐시, 완성 HTML, 작업 이력과 Codex 로그인을 영구 볼륨에 저장합니다.
+
+```bash
+git clone https://github.com/oya1130-sudo/lecture-companion.git
+cd lecture-companion
+cp .env.cloud.example .env
+docker compose up -d --build
+docker compose exec app codex login --device-auth
+```
+
+VM 준비부터 태블릿 HTTPS 접속, 업데이트와 백업 주의사항까지는 [개인용 클라우드 VM 배포 안내](docs/CLOUD_DEPLOYMENT.md)를 따르세요. 이 앱은 별도 사용자 인증이 없으므로 `8501` 포트를 공용 인터넷에 직접 열지 않습니다.
+
 ## 저장 구조
 
 - `output`: 로컬 완성 HTML
 - `data`: 개인 학습가이드와 개인 설정
 - `.prestudy-cache`: 재사용 가능한 분석 캐시
 - `.prestudy-work`: 격리된 Codex 작업 폴더
+- `jobs.json`: 서버 재시작 후 복구되는 완료·실패 작업 이력
 - Google Drive `수업 동반 노트/01. 병리학` 등: 동기화되는 완성본
 
 완성 파일명은 `MMDD 과목명 교수명 강의주제 수업동반노트.html` 형식입니다. 같은 이름이 있으면 `(2)`처럼 번호를 붙입니다.

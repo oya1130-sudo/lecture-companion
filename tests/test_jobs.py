@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from pathlib import Path
@@ -83,3 +84,62 @@ def test_drive_failure_keeps_local_result_complete(tmp_path: Path, monkeypatch):
     assert local_output.is_file()
     assert snapshot.drive_path is None
     assert snapshot.drive_error
+
+
+def test_job_history_survives_manager_restart(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(jobs_module, "CodexStudyEngine", FakeEngine)
+    monkeypatch.setattr(jobs_module, "StudyGuideService", FakeService)
+    state_path = tmp_path / "jobs.json"
+    manager = JobManager(max_workers=1, drive_output_root=None, state_path=state_path)
+    lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
+    output_path = tmp_path / "persisted.html"
+
+    manager.submit("job-persisted", lecture, [], output_path)
+    deadline = time.monotonic() + 2
+    snapshot = manager.snapshots()[0]
+    while time.monotonic() < deadline and snapshot.status != "complete":
+        time.sleep(0.01)
+        snapshot = manager.snapshots()[0]
+    manager.executor.shutdown(wait=True)
+
+    restored = JobManager(max_workers=1, drive_output_root=None, state_path=state_path)
+    restored_snapshot = restored.snapshots()[0]
+    restored.executor.shutdown(wait=True)
+
+    assert restored_snapshot.status == "complete"
+    assert restored_snapshot.output_path == output_path
+    assert state_path.is_file()
+
+
+def test_running_job_is_marked_failed_after_restart(tmp_path: Path):
+    state_path = tmp_path / "jobs.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "jobs": [
+                    {
+                        "job_id": "interrupted",
+                        "label": "약리학 · 약동학",
+                        "status": "running",
+                        "messages": ["작업 시작"],
+                        "output_path": str(tmp_path / "interrupted.html"),
+                        "drive_path": None,
+                        "drive_error": "",
+                        "error": "",
+                        "created_at": "2026-08-30T10:00:00",
+                        "finished_at": None,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    manager = JobManager(max_workers=1, drive_output_root=None, state_path=state_path)
+    snapshot = manager.snapshots()[0]
+    manager.executor.shutdown(wait=True)
+
+    assert snapshot.status == "failed"
+    assert "서버가 재시작" in snapshot.error

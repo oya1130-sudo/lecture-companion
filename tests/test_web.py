@@ -76,3 +76,11 @@ def test_persisted_guides_are_copied_and_configured(tmp_path: Path):
     configured = config_path.read_text(encoding="utf-8")
     assert "guide-1.pdf" in configured
     assert "guide-2.pdf" in configured
+
+
+def test_cloud_deployment_helpers(monkeypatch):
+    monkeypatch.setenv("PRESTUDY_DEPLOYMENT_MODE", " CLOUD ")
+    monkeypatch.setenv("PRESTUDY_PUBLIC_URL", "https://lecture.example.ts.net/")
+
+    assert web._is_cloud_deployment() is True
+    assert web._public_url() == "https://lecture.example.ts.net"
