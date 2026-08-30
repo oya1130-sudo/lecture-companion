@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import html
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
-from .models import CitedItem, LectureRequest, StudyGuide
+from .models import CitedItem, LectureRequest, SourceDocument, SourceKind, StudyGuide
 
 
 def _safe(value: str) -> str:
@@ -53,9 +54,46 @@ def _cited_list(items: list[CitedItem]) -> str:
     return '<ul class="note-list">' + "".join(_cited_item(item) for item in sorted(items, key=_first_page)) + "</ul>"
 
 
-def render_study_guide_html(guide: StudyGuide, lecture: LectureRequest, output_path: Path) -> None:
+def _source_manifest(sources: Sequence[SourceDocument]) -> str:
+    grouped: dict[SourceKind, list[str]] = {kind: [] for kind in SourceKind}
+    for source in sources:
+        filename = source.path.name
+        if filename not in grouped[source.kind]:
+            grouped[source.kind].append(filename)
+
+    groups: list[str] = []
+    for kind in (SourceKind.GUIDE, SourceKind.JOKCHEK, SourceKind.SUMMARY):
+        filenames = grouped[kind]
+        if not filenames:
+            continue
+        items = "".join(f"<li>{_safe(filename)}</li>" for filename in filenames)
+        groups.append(
+            '<div class="source-group">'
+            f'<div class="source-kind">{_safe(kind.value)} <span>{len(filenames)}개</span></div>'
+            f"<ul>{items}</ul>"
+            "</div>"
+        )
+
+    if not groups:
+        return ""
+    return (
+        '<div class="source-manifest" aria-labelledby="source-manifest-title">'
+        '<h2 id="source-manifest-title">사용한 원본 자료</h2>'
+        '<p>이 노트를 만드는 데 실제로 사용한 PDF입니다.</p>'
+        f'<div class="source-groups">{"".join(groups)}</div>'
+        "</div>"
+    )
+
+
+def render_study_guide_html(
+    guide: StudyGuide,
+    lecture: LectureRequest,
+    output_path: Path,
+    sources: Sequence[SourceDocument] = (),
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ordered_flow = sorted(guide.lecture_flow, key=lambda section: (_range_start(section.source_range), section.order))
+    source_manifest = _source_manifest(sources)
     document_key = hashlib.sha1(
         f"{lecture.course}|{lecture.professor}|{lecture.topic}|{lecture.lecture_date}".encode("utf-8")
     ).hexdigest()[:12]
@@ -127,6 +165,16 @@ body.dark{--bg:#111820;--surface:#19232d;--text:#eaf0f4;--muted:#a8b5bf;--navy:#
 @media print{.topbar,.sidebar,.flow-actions{display:none!important}.shell{display:block;max-width:none;padding:0}.flow-section{break-inside:avoid;box-shadow:none}.flow-section:not([open])>.flow-content{display:block}.hero{background:#fff;color:#000;border:1px solid #ccc}.section-card,.usage{box-shadow:none}}
 '''
 
+    styles += r'''
+.source-manifest{margin-top:1.25rem;padding:1rem 1.1rem;border:1px solid rgba(255,255,255,.24);border-radius:14px;background:rgba(255,255,255,.1)}
+.source-manifest h2{margin:0;font-size:1rem;color:#fff}.source-manifest>p{margin:.15rem 0 .75rem;font-size:.82rem;opacity:.75}
+.source-groups{display:grid;gap:.55rem}.source-group{display:grid;grid-template-columns:minmax(7.5rem,auto) minmax(0,1fr);gap:.75rem;align-items:start}
+.source-kind{font-size:.85rem;font-weight:800}.source-kind span{margin-left:.3rem;font-size:.72rem;opacity:.7}
+.source-group ul{margin:0;padding-left:1.1rem;font-size:.84rem}.source-group li{overflow-wrap:anywhere}
+@media(max-width:900px){.source-group{grid-template-columns:1fr;gap:.15rem}}
+@media print{.source-manifest{background:#fff;border-color:#ccc}.source-manifest h2{color:#000}}
+'''
+
     script = r'''
 const rootKey="prestudy-__DOC_KEY__";
 const body=document.body;
@@ -158,7 +206,7 @@ search.addEventListener("input",()=>{const q=search.value.trim().toLowerCase();l
 <div class="shell">
 <nav class="sidebar"><h2>강의 흐름</h2>{''.join(nav_links)}</nav>
 <main class="content">
-  <section class="hero"><div class="eyebrow">{_safe(lecture.course)} · {_safe(lecture.professor)}</div><h1>{_safe(guide.title)}</h1><p>{_safe(guide.subtitle)}</p><div class="meta"><span>{_safe(lecture.topic)}</span><span>{_safe(lecture.lecture_date or '강의일 미지정')}</span><span>{len(ordered_flow)}개 구간</span></div></section>
+  <section class="hero"><div class="eyebrow">{_safe(lecture.course)} · {_safe(lecture.professor)}</div><h1>{_safe(guide.title)}</h1><p>{_safe(guide.subtitle)}</p><div class="meta"><span>{_safe(lecture.topic)}</span><span>{_safe(lecture.lecture_date or '강의일 미지정')}</span><span>{len(ordered_flow)}개 구간</span></div>{source_manifest}</section>
   <section class="usage"><h2>이 파일을 쓰는 법</h2><ol>{how_to}</ol></section>
   <div class="flow-actions"><button id="collapse">모두 접기</button><button id="expand">모두 펼치기</button></div>
   <div id="empty-search" class="empty-search">검색 결과가 없습니다.</div>

@@ -77,9 +77,9 @@ def test_sources_run_in_parallel_and_finished_guide_is_reused(tmp_path: Path, mo
 
     rendered = []
 
-    def fake_render(guide, lecture, output_path):
+    def fake_render(guide, lecture, output_path, source_documents):
         output_path.write_text("<html>done</html>", encoding="utf-8")
-        rendered.append(output_path)
+        rendered.append((output_path, source_documents))
 
     monkeypatch.setattr("prestudy.service.render_study_guide_html", fake_render)
     engine = FakeEngine()
@@ -98,4 +98,5 @@ def test_sources_run_in_parallel_and_finished_guide_is_reused(tmp_path: Path, mo
     assert engine.max_active >= 2
     assert engine.synthesis_count == 1
     assert len(rendered) == 2
+    assert rendered[0][1] == sources
     assert (tmp_path / "second.html").is_file()

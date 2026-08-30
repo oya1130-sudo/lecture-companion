@@ -1,7 +1,15 @@
 from pathlib import Path
 
 from prestudy.html_renderer import render_study_guide_html
-from prestudy.models import CitedItem, LectureFlowSection, LectureRequest, QuickReference, StudyGuide
+from prestudy.models import (
+    CitedItem,
+    LectureFlowSection,
+    LectureRequest,
+    QuickReference,
+    SourceDocument,
+    SourceKind,
+    StudyGuide,
+)
 
 
 def _guide() -> StudyGuide:
@@ -41,15 +49,28 @@ def _guide() -> StudyGuide:
     )
 
 
-def test_html_is_single_responsive_document_and_hides_source_filename(tmp_path: Path):
+def test_html_shows_source_files_on_cover_but_not_in_inline_citations(tmp_path: Path):
     output = tmp_path / "동반노트.html"
     lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
-    render_study_guide_html(_guide(), lecture, output)
+    sources = [
+        SourceDocument(path=tmp_path / "guide.pdf", kind=SourceKind.GUIDE),
+        SourceDocument(path=tmp_path / "족첵파일.pdf", kind=SourceKind.JOKCHEK),
+        SourceDocument(path=tmp_path / "summary.pdf", kind=SourceKind.SUMMARY),
+    ]
+    render_study_guide_html(_guide(), lecture, output, sources)
     text = output.read_text(encoding="utf-8")
     assert text.startswith("<!doctype html>")
     assert 'name="viewport"' in text
     assert "localStorage" in text
-    assert "족첵파일.pdf" not in text
+    assert "사용한 원본 자료" in text
+    assert "guide.pdf" in text
+    assert "summary.pdf" in text
+    assert text.count("족첵파일.pdf") == 1
+    hero_start = text.index('<section class="hero"')
+    manifest_start = text.index('<div class="source-manifest"')
+    hero_end = text.index("</section>", manifest_start)
+    usage_start = text.index('<section class="usage"')
+    assert hero_start < manifest_start < hero_end < usage_start
     assert "p.12" in text
 
 

@@ -31,11 +31,18 @@ class StudyGuideService:
             source_workers or int(os.environ.get("PRESTUDY_SOURCE_WORKERS", "2")),
         )
 
-    def _render(self, guide: StudyGuide, lecture: LectureRequest, output_path: Path, progress: Progress) -> None:
+    def _render(
+        self,
+        guide: StudyGuide,
+        lecture: LectureRequest,
+        sources: list[SourceDocument],
+        output_path: Path,
+        progress: Progress,
+    ) -> None:
         suffix = output_path.suffix.lower()
         if suffix == ".html":
             progress("태블릿용 HTML 구성 중")
-            render_study_guide_html(guide, lecture, output_path)
+            render_study_guide_html(guide, lecture, output_path, sources)
         elif suffix == ".pdf":
             progress("PDF 렌더링 중")
             render_study_guide(guide, lecture, output_path)
@@ -89,13 +96,13 @@ class StudyGuideService:
         cached_guide = self.guide_cache.get(guide_key)
         if cached_guide is not None:
             progress("완성 노트 캐시 사용 — AI 재호출 없이 출력")
-            self._render(cached_guide, lecture, output_path, progress)
+            self._render(cached_guide, lecture, sources, output_path, progress)
             progress(f"완료: {output_path.name}")
             return cached_guide
 
         progress("강의 흐름별 수업 동반 노트 구성 중")
         guide = self.engine.synthesize(lecture, complete_digests)
         self.guide_cache.put(guide_key, guide)
-        self._render(guide, lecture, output_path, progress)
+        self._render(guide, lecture, sources, output_path, progress)
         progress(f"완료: {output_path.name}")
         return guide
