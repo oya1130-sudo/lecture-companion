@@ -55,6 +55,35 @@ class SourceDigest(BaseModel):
 class CitedItem(BaseModel):
     content: str
     citations: list[str] = Field(description="[파일명 p.쪽] 형태의 근거")
+    importance: int = Field(
+        default=0,
+        ge=0,
+        le=3,
+        description="기출 중요도. 일반 항목은 0, 기출 포인트는 1~3",
+    )
+    exam_years: list[str] = Field(
+        default_factory=list,
+        description="자료에서 명시적으로 확인된 기출 연도. 예: 22, 23",
+    )
+
+
+class StudyTable(BaseModel):
+    title: str
+    headers: list[str] = Field(description="강의록 원문 용어를 사용한 표 머리글")
+    rows: list[list[str]] = Field(description="각 행의 셀. headers와 같은 열 수를 유지")
+    citations: list[str] = Field(description="표 전체의 근거")
+
+
+class CauseEffectFlow(BaseModel):
+    title: str
+    steps: list[str] = Field(description="원인부터 결과까지 강의록 용어로 쓴 순서형 단계")
+    citations: list[str] = Field(description="흐름 전체의 근거")
+
+
+class FinalChecklist(BaseModel):
+    comparisons: list[CitedItem] = Field(default_factory=list)
+    cause_and_effect: list[CitedItem] = Field(default_factory=list)
+    traps: list[CitedItem] = Field(default_factory=list)
 
 
 class LectureFlowSection(BaseModel):
@@ -65,6 +94,18 @@ class LectureFlowSection(BaseModel):
     emphasis_signals: list[CitedItem] = Field(description="교수 강조 또는 출제 가능성이 근거로 확인되는 지점")
     listen_for: list[CitedItem] = Field(description="수업에서 말로 풀어줄 때 집중해서 들을 연결·해석 포인트")
     minimal_live_notes: list[str] = Field(description="PDF만으로 확정할 수 없어 수업 중 짧게 확인할 항목")
+    tables: list[StudyTable] = Field(
+        default_factory=list,
+        description="비교·분류·공식 정리에 유용한 표",
+    )
+    cause_effect_flows: list[CauseEffectFlow] = Field(
+        default_factory=list,
+        description="원인에서 결과로 이어지는 기전 흐름",
+    )
+    trap_points: list[CitedItem] = Field(
+        default_factory=list,
+        description="오답을 유발하는 예외·반전·혼동 포인트",
+    )
 
 
 class QuickReference(BaseModel):
@@ -77,6 +118,10 @@ class QuickReference(BaseModel):
 class StudyGuide(BaseModel):
     title: str
     subtitle: str
+    exam_style_summary: str = Field(
+        default="판단 자료 부족",
+        description="학습가이드에 근거한 교수 출제 스타일과 노트 사용 전략",
+    )
     how_to_use: list[str]
     lecture_flow: list[LectureFlowSection]
     quick_reference: list[QuickReference]
@@ -85,3 +130,4 @@ class StudyGuide(BaseModel):
     minimal_live_checklist: list[str]
     uncertainties: list[str]
     source_notes: list[str]
+    final_checklist: FinalChecklist = Field(default_factory=FinalChecklist)

@@ -6,7 +6,15 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
-from .models import CitedItem, LectureRequest, SourceDocument, SourceKind, StudyGuide
+from .models import (
+    CauseEffectFlow,
+    CitedItem,
+    LectureRequest,
+    SourceDocument,
+    SourceKind,
+    StudyGuide,
+    StudyTable,
+)
 from .page_basis import citation_page_labels, page_basis_filenames
 
 
@@ -19,6 +27,10 @@ def _safe(value: str) -> str:
         "minimal_live_notes": "수업 중 최소 확인",
         "quick_reference": "빠른 참조",
         "professor_and_exam_signals": "집중 신호",
+        "exam_style_summary": "출제 스타일",
+        "cause_effect_flows": "원인→결과 흐름",
+        "trap_points": "함정 포인트",
+        "final_checklist": "최종 체크리스트",
     }
     for internal, label in display_terms.items():
         normalized = normalized.replace(internal, label)
@@ -45,7 +57,8 @@ def _range_start(value: str) -> int:
 def _cited_item(item: CitedItem, allowed_filenames: set[str] | None = None) -> str:
     pages = _citation_pages(item.citations, allowed_filenames)
     page_html = f'<span class="page-ref">{_safe(pages)}</span>' if pages else ""
-    return f'<li><div>{_safe(item.content)}</div>{page_html}</li>'
+    evidence_html = _evidence_badges(item.importance, item.exam_years)
+    return f'<li><div>{_safe(item.content)}</div><div class="item-meta">{evidence_html}{page_html}</div></li>'
 
 
 def _cited_list(
@@ -58,6 +71,106 @@ def _cited_list(
         + "".join(_cited_item(item, allowed_filenames) for item in ordered)
         + "</ul>"
     )
+
+
+def _exam_year_label(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    if normalized.endswith("년") or "확인" in normalized or "미상" in normalized:
+        return normalized
+    return f"{normalized}년"
+
+
+def _evidence_badges(importance: int, exam_years: Sequence[str]) -> str:
+    badges: list[str] = []
+    if importance > 0:
+        badges.append(
+            f'<span class="importance" aria-label="기출 중요도 {importance}점">{"⭐" * importance}</span>'
+        )
+    years = [_exam_year_label(value) for value in exam_years]
+    years = [value for value in years if value]
+    if importance > 0 and not years:
+        years = ["연도 확인 불가"]
+    if years:
+        if len(years) == 1 and ("확인" in years[0] or "미상" in years[0]):
+            year_text = f"기출 {years[0]}"
+        else:
+            year_text = f'{", ".join(years)} 기출'
+        badges.append(f'<span class="exam-years">{_safe(year_text)}</span>')
+    return "".join(badges)
+
+
+def _section_evidence(section) -> tuple[int, list[str]]:
+    importance = max((item.importance for item in section.emphasis_signals), default=0)
+    years: list[str] = []
+    for item in section.emphasis_signals:
+        for year in item.exam_years:
+            if year not in years:
+                years.append(year)
+    return importance, years
+
+
+def _study_table(table: StudyTable, allowed_filenames: set[str] | None) -> str:
+    if not table.headers:
+        return ""
+    header_html = "".join(f"<th>{_safe(value)}</th>" for value in table.headers)
+    body_rows: list[str] = []
+    width = len(table.headers)
+    for row in table.rows:
+        cells = [*row[:width], *([""] * max(0, width - len(row)))]
+        body_rows.append("<tr>" + "".join(f"<td>{_safe(value)}</td>" for value in cells) + "</tr>")
+    pages = _citation_pages(table.citations, allowed_filenames)
+    page_html = f'<span class="page-ref">{_safe(pages)}</span>' if pages else ""
+    return f'''<section class="study-table-block searchable">
+  <div class="block-heading"><h4>{_safe(table.title)}</h4>{page_html}</div>
+  <div class="study-table-scroll"><table><thead><tr>{header_html}</tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>
+</section>'''
+
+
+def _cause_effect_flow(flow: CauseEffectFlow, allowed_filenames: set[str] | None) -> str:
+    steps = []
+    for index, step in enumerate(flow.steps):
+        steps.append(f'<div class="mechanism-step">{_safe(step)}</div>')
+        if index < len(flow.steps) - 1:
+            steps.append('<div class="mechanism-arrow" aria-hidden="true">↓</div>')
+    pages = _citation_pages(flow.citations, allowed_filenames)
+    page_html = f'<span class="page-ref">{_safe(pages)}</span>' if pages else ""
+    return f'''<section class="mechanism-block searchable">
+  <div class="block-heading"><h4>{_safe(flow.title)}</h4>{page_html}</div>
+  <div class="mechanism-flow">{''.join(steps)}</div>
+</section>'''
+
+
+def _trap_blocks(items: list[CitedItem], allowed_filenames: set[str] | None) -> str:
+    blocks = []
+    for item in items:
+        pages = _citation_pages(item.citations, allowed_filenames)
+        page_html = f'<span class="page-ref">{_safe(pages)}</span>' if pages else ""
+        blocks.append(
+            f'<blockquote class="trap-point searchable"><strong>🔥 함정</strong>'
+            f'<div>{_safe(item.content)}</div><div class="item-meta">{page_html}</div></blockquote>'
+        )
+    return "".join(blocks)
+
+
+def _checklist_items(
+    items: list[CitedItem],
+    document_key: str,
+    group: str,
+    allowed_filenames: set[str] | None,
+) -> str:
+    rows = []
+    for index, item in enumerate(items, 1):
+        pages = _citation_pages(item.citations, allowed_filenames)
+        page_html = f'<span class="page-ref">{_safe(pages)}</span>' if pages else ""
+        evidence_html = _evidence_badges(item.importance, item.exam_years)
+        rows.append(
+            f'<label class="check-row"><input type="checkbox" data-store="{document_key}-{group}-{index}">'
+            f'<span class="check-copy">{_safe(item.content)}<span class="item-meta">'
+            f'{evidence_html}{page_html}</span></span></label>'
+        )
+    return "".join(rows)
 
 
 def _source_manifest(sources: Sequence[SourceDocument]) -> str:
@@ -112,12 +225,22 @@ def render_study_guide_html(
     ).hexdigest()[:12]
 
     nav_links = []
+    roadmap_cards = []
     flow_sections = []
     for display_order, section in enumerate(ordered_flow, 1):
         section_id = f"flow-{display_order}"
+        section_importance, section_years = _section_evidence(section)
+        section_evidence = _evidence_badges(section_importance, section_years)
         nav_links.append(
             f'<a href="#{section_id}"><span>{display_order}</span><strong>{_safe(section.source_range)}</strong>'
             f'<small>{_safe(section.title)}</small></a>'
+        )
+        roadmap_cards.append(
+            f'<a class="roadmap-card searchable" href="#{section_id}">'
+            f'<span class="roadmap-number">{display_order:02d}</span>'
+            f'<span class="roadmap-copy"><small>{_safe(section.source_range)}</small>'
+            f'<strong>{_safe(section.title)}</strong><span class="roadmap-evidence">{section_evidence}</span></span>'
+            '<span class="roadmap-go" aria-hidden="true">→</span></a>'
         )
         live_notes = ""
         if section.minimal_live_notes:
@@ -132,17 +255,39 @@ def render_study_guide_html(
                 )
             live_notes = '<div class="note-panel live"><h4>수업 중 딱 이것만 확인</h4>' + "".join(rows) + "</div>"
 
+        tables_html = "".join(_study_table(table, page_filter) for table in section.tables)
+        mechanisms_html = "".join(
+            _cause_effect_flow(flow, page_filter) for flow in section.cause_effect_flows
+        )
+        exam_panel = ""
+        if section.emphasis_signals:
+            exam_panel = (
+                '<div class="note-panel emphasis"><h4>기출 포인트</h4>'
+                f'{_cited_list(section.emphasis_signals, page_filter)}</div>'
+            )
+        trap_html = _trap_blocks(section.trap_points, page_filter)
+        listen_panel = ""
+        if section.listen_for:
+            listen_panel = (
+                '<div class="note-panel listen"><h4>설명을 들으며 연결할 것</h4>'
+                f'{_cited_list(section.listen_for, page_filter)}</div>'
+            )
+
         flow_sections.append(
             f'''<details class="flow-section searchable" id="{section_id}" open>
   <summary>
     <span class="flow-number">{display_order}</span>
     <span class="flow-heading"><strong>{_safe(section.title)}</strong><small>{_safe(section.source_range)}</small></span>
+    <span class="section-evidence">{section_evidence}</span>
     <span class="chevron">⌄</span>
   </summary>
   <div class="flow-content">
     <div class="note-panel core"><h4>필기 대신 읽을 핵심</h4>{_cited_list(section.ready_notes, page_filter)}</div>
-    <div class="note-panel emphasis"><h4>강조될 가능성이 높은 지점</h4>{_cited_list(section.emphasis_signals, page_filter)}</div>
-    <div class="note-panel listen"><h4>설명을 들으며 연결할 것</h4>{_cited_list(section.listen_for, page_filter)}</div>
+    {tables_html}
+    {mechanisms_html}
+    {exam_panel}
+    <div class="trap-stack">{trap_html}</div>
+    {listen_panel}
     {live_notes}
   </div>
 </details>'''
@@ -164,9 +309,27 @@ def render_study_guide_html(
     focus_items = _cited_list(guide.professor_and_exam_signals, page_filter)
     confusion_items = _cited_list(guide.common_confusions, page_filter)
     how_to = "".join(f"<li>{_safe(item)}</li>" for item in guide.how_to_use)
-    checklist = "".join(
+    live_checklist = "".join(
         f'<label class="check-row"><input type="checkbox" data-store="{document_key}-global-{index}"> {_safe(item)}</label>'
         for index, item in enumerate(guide.minimal_live_checklist, 1)
+    )
+    comparison_checklist = _checklist_items(
+        guide.final_checklist.comparisons,
+        document_key,
+        "comparison",
+        page_filter,
+    )
+    cause_checklist = _checklist_items(
+        guide.final_checklist.cause_and_effect,
+        document_key,
+        "cause-effect",
+        page_filter,
+    )
+    trap_checklist = _checklist_items(
+        guide.final_checklist.traps,
+        document_key,
+        "trap",
+        page_filter,
     )
     uncertainties = "".join(f"<li>{_safe(item)}</li>" for item in guide.uncertainties)
 
@@ -186,6 +349,24 @@ body.dark{--bg:#111820;--surface:#19232d;--text:#eaf0f4;--muted:#a8b5bf;--navy:#
 .source-group ul{margin:0;padding-left:1.1rem;font-size:.84rem}.source-group li{overflow-wrap:anywhere}
 @media(max-width:900px){.source-group{grid-template-columns:1fr;gap:.15rem}}
 @media print{.source-manifest{background:#fff;border-color:#ccc}.source-manifest h2{color:#000}}
+'''
+
+    styles += r'''
+:root{--gold:#f0b429;--gold-soft:#fff8dd;--red:#c94b4b;--red-soft:#fff1f1;--table-head:#edf3f6;--step:#eef6fa}
+body.dark{--gold:#ffd166;--gold-soft:#40371f;--red:#ff8a8a;--red-soft:#40282d;--table-head:#24333e;--step:#203746}
+.roadmap{margin-top:1rem;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.15rem 1.3rem;box-shadow:var(--shadow)}
+.section-kicker{margin:0 0 .1rem;color:var(--blue);font-size:.76rem;font-weight:900;letter-spacing:.1em}.roadmap h2{margin:.1rem 0 .25rem;color:var(--navy)}
+.exam-style-summary{margin:.85rem 0 1rem;padding:.8rem 1rem;border-left:4px solid var(--gold);border-radius:0 10px 10px 0;background:var(--gold-soft)}.exam-style-summary strong{display:block;color:var(--navy);font-size:.82rem;margin-bottom:.15rem}
+.roadmap-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}.roadmap-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:.75rem;align-items:center;padding:.8rem .9rem;border:1px solid var(--line);border-radius:12px;color:var(--text);text-decoration:none;background:var(--bg)}.roadmap-card:hover{border-color:var(--blue);transform:translateY(-1px)}
+.roadmap-number{font-variant-numeric:tabular-nums;color:var(--blue);font-size:.78rem;font-weight:900}.roadmap-copy{display:flex;flex-direction:column;min-width:0}.roadmap-copy small{color:var(--blue);font-weight:800}.roadmap-copy strong{line-height:1.35}.roadmap-evidence{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.25rem}.roadmap-go{color:var(--muted);font-size:1.15rem}
+.section-evidence,.item-meta,.block-heading{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem}.section-evidence{margin-left:auto;justify-content:flex-end}.item-meta{margin-top:.18rem}.item-meta:empty{display:none}.importance{color:var(--gold);font-size:.83rem;letter-spacing:-.08em;white-space:nowrap}.exam-years{display:inline-block;border:1px solid color-mix(in srgb,var(--gold) 55%,var(--line));border-radius:999px;padding:.08rem .45rem;background:var(--gold-soft);color:var(--text);font-size:.72rem;font-weight:850;white-space:nowrap}
+.block-heading{justify-content:space-between;margin-bottom:.55rem}.block-heading h4{margin:0;color:var(--navy)}
+.study-table-block,.mechanism-block{border:1px solid var(--line);border-radius:12px;padding:.9rem 1rem;background:var(--surface)}.study-table-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:9px}.study-table-block table{width:100%;min-width:520px;border-collapse:collapse;font-size:.9rem;line-height:1.5}.study-table-block th,.study-table-block td{padding:.6rem .7rem;border-right:1px solid var(--line);border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.study-table-block th{background:var(--table-head);color:var(--navy);font-weight:900}.study-table-block tr:last-child td{border-bottom:0}.study-table-block th:last-child,.study-table-block td:last-child{border-right:0}
+.mechanism-flow{display:flex;flex-direction:column;align-items:stretch;gap:.2rem;max-width:760px;margin:auto}.mechanism-step{padding:.62rem .8rem;border:1px solid color-mix(in srgb,var(--blue) 35%,var(--line));border-radius:10px;background:var(--step);text-align:center;font-weight:750}.mechanism-arrow{text-align:center;color:var(--blue);font-size:1.25rem;font-weight:900;line-height:1}
+.trap-stack:empty{display:none}.trap-point{margin:0;padding:.8rem 1rem;border:0;border-left:5px solid var(--red);border-radius:0 11px 11px 0;background:var(--red-soft)}.trap-point+ .trap-point{margin-top:.55rem}.trap-point strong{display:block;color:var(--red);font-size:.84rem;margin-bottom:.2rem}
+.final-checklist{border-top:5px solid var(--navy)}.final-checklist-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}.check-card{border:1px solid var(--line);border-radius:12px;padding:.85rem;background:var(--bg)}.check-card h3{margin:0 0 .45rem;color:var(--navy);font-size:1rem}.check-card.comparison{border-top:3px solid var(--blue)}.check-card.cause{border-top:3px solid #4b9b72}.check-card.traps{border-top:3px solid var(--red)}.check-copy{display:block;min-width:0}.check-row{display:flex;align-items:flex-start;gap:.5rem}.check-row input{margin-top:.42rem;flex:0 0 auto}
+@media(max-width:900px){.roadmap-grid,.final-checklist-grid{grid-template-columns:1fr}.section-evidence{width:100%;margin-left:42px;justify-content:flex-start}.flow-section summary{flex-wrap:wrap}.roadmap{padding:1rem}.study-table-block,.mechanism-block{padding:.75rem}}
+@media print{.roadmap-card{break-inside:avoid}.study-table-scroll{overflow:visible}.study-table-block table{min-width:0}.trap-point{break-inside:avoid}.final-checklist{break-before:page}}
 '''
 
     script = r'''
@@ -220,13 +401,15 @@ search.addEventListener("input",()=>{const q=search.value.trim().toLowerCase();l
 <nav class="sidebar"><h2>강의 흐름</h2>{''.join(nav_links)}</nav>
 <main class="content">
   <section class="hero"><div class="eyebrow">{_safe(lecture.course)} · {_safe(lecture.professor)}</div><h1>{_safe(guide.title)}</h1><p>{_safe(guide.subtitle)}</p><div class="meta"><span>{_safe(lecture.topic)}</span><span>{_safe(lecture.lecture_date or '강의일 미지정')}</span><span>{len(ordered_flow)}개 구간</span><span>페이지 기준 · {_safe(page_kind.value)}</span></div>{source_manifest}</section>
+  <section class="roadmap" id="roadmap"><p class="section-kicker">LECTURE ROADMAP</p><h2>수업 로드맵</h2><div class="exam-style-summary"><strong>교수님 출제 스타일 · 적용 전략</strong>{_safe(guide.exam_style_summary)}</div><div class="roadmap-grid">{''.join(roadmap_cards)}</div></section>
   <section class="usage"><h2>이 파일을 쓰는 법</h2><ol>{how_to}</ol></section>
   <div class="flow-actions"><button id="collapse">모두 접기</button><button id="expand">모두 펼치기</button></div>
   <div id="empty-search" class="empty-search">검색 결과가 없습니다.</div>
   {''.join(flow_sections)}
   <section class="section-card"><h2>수업 중 빠른 참조</h2><div class="reference-grid">{''.join(quick_cards)}</div></section>
   <div class="split"><section class="section-card focus searchable"><h2>교수님·족보 기반 집중 신호</h2>{focus_items}</section><section class="section-card confusion searchable"><h2>헷갈리기 쉬운 구분</h2>{confusion_items}</section></div>
-  <section class="section-card"><h2>수업 중 최소 확인</h2>{checklist}</section>
+  <section class="section-card final-checklist" id="final-checklist"><p class="section-kicker">FINAL REVIEW</p><h2>최종 체크리스트</h2><div class="final-checklist-grid"><div class="check-card comparison"><h3>A vs B 비교</h3>{comparison_checklist}</div><div class="check-card cause"><h3>Cause &amp; Effect</h3>{cause_checklist}</div><div class="check-card traps"><h3>🔥 함정 포인트</h3>{trap_checklist}</div></div></section>
+  <section class="section-card"><h2>수업 중 최소 확인</h2>{live_checklist}</section>
   <details class="section-card uncertainties"><summary><strong>자료 간 차이와 확인이 필요한 점</strong></summary><ul>{uncertainties}</ul></details>
 </main></div>
 <footer>오프라인 단일 HTML · 체크와 메모는 이 기기의 브라우저에 자동 저장됩니다.</footer>

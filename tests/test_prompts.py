@@ -18,6 +18,12 @@ def test_lecture_material_prompt_uses_material_for_pages_but_not_title():
     assert "족첵은 교수명·강의 제목과 출제 신호의 기준" in synthesis
     assert "lecture_flow는 강의자료의 실제 진행 순서" in synthesis
     assert "lecture_flow는 족첵 속 현재 강의자료" not in synthesis
+    assert "importance는 ⭐ 1~3개" in synthesis
+    assert "exam_years" in synthesis
+    assert "짤족/탈족 정보가 직접 확인될 때만" in synthesis
+    assert "tables는 A vs B 비교" in synthesis
+    assert "cause_effect_flows" in synthesis
+    assert "final_checklist.comparisons" in synthesis
 
 
 def test_jokchek_remains_page_basis_when_material_is_not_selected():

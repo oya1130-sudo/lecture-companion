@@ -69,7 +69,22 @@ def align_lecture_flow_to_material(
 
     for section in guide.lecture_flow:
         citations = _section_citations(
-            [*section.ready_notes, *section.emphasis_signals, *section.listen_for]
+            [
+                *section.ready_notes,
+                *section.emphasis_signals,
+                *section.listen_for,
+                *section.trap_points,
+            ]
+        )
+        citations.extend(
+            citation
+            for table in section.tables
+            for citation in table.citations
+        )
+        citations.extend(
+            citation
+            for flow in section.cause_effect_flows
+            for citation in flow.citations
         )
         ranges = citation_page_ranges(citations, lecture_files)
         if not ranges:

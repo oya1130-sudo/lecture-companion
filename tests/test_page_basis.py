@@ -6,6 +6,7 @@ from prestudy.models import (
     SourceDocument,
     SourceKind,
     StudyGuide,
+    StudyTable,
 )
 from prestudy.page_basis import (
     align_lecture_flow_to_material,
@@ -81,3 +82,23 @@ def test_jokchek_remains_page_basis_without_lecture_material(tmp_path: Path):
     assert kind == SourceKind.JOKCHEK
     assert filenames == {"족첵.pdf"}
     assert guide.lecture_flow[0].source_range == "p.101–102"
+
+
+def test_table_and_flow_content_can_supply_lecture_material_page_range(tmp_path: Path):
+    sources = [
+        SourceDocument(path=tmp_path / "강의자료.pdf", kind=SourceKind.LECTURE),
+        SourceDocument(path=tmp_path / "족첵.pdf", kind=SourceKind.JOKCHEK),
+    ]
+    guide = _guide()
+    guide.lecture_flow[1].tables = [
+        StudyTable(
+            title="비교표",
+            headers=["A", "B"],
+            rows=[["1", "2"]],
+            citations=["[강의자료.pdf p.14-16]"],
+        )
+    ]
+
+    align_lecture_flow_to_material(guide, sources)
+
+    assert guide.lecture_flow[1].source_range == "p.14–16"
