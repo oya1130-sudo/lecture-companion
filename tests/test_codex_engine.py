@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -6,7 +7,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from prestudy.ai import CodexExecutionError, CodexStudyEngine, _strict_schema
-from prestudy.models import StudyGuide
+from prestudy.models import LectureRequest, StudyGuide
 
 
 class MiniResult(BaseModel):
@@ -95,6 +96,82 @@ def test_codex_engine_accepts_reasoning_effort_override(monkeypatch, tmp_path: P
     engine = CodexStudyEngine(work_root=tmp_path, reasoning_effort="medium")
 
     assert engine.reasoning_effort == "medium"
+
+
+def test_codex_engine_uses_bounded_default_timeouts(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("prestudy.ai.shutil.which", lambda _: "codex")
+    monkeypatch.setattr(
+        "prestudy.ai.subprocess.run",
+        lambda command, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="Logged in using ChatGPT\n",
+            stderr="",
+        ),
+    )
+
+    engine = CodexStudyEngine(work_root=tmp_path)
+
+    assert engine.timeout_seconds == 600
+    assert engine.synthesis_timeout_seconds == 600
+
+
+def test_codex_engine_falls_back_after_default_model_timeout(
+    monkeypatch,
+    tmp_path: Path,
+):
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command[1:3] == ["login", "status"]:
+            return SimpleNamespace(returncode=0, stdout="Logged in using ChatGPT\n", stderr="")
+        if "--model" not in command:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        output_index = command.index("--output-last-message") + 1
+        Path(command[output_index]).write_text(json.dumps({"status": "ok"}), encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("prestudy.ai.shutil.which", lambda _: "codex")
+    monkeypatch.setattr("prestudy.ai.subprocess.run", fake_run)
+    engine = CodexStudyEngine(work_root=tmp_path, timeout_seconds=1)
+    messages = []
+
+    result = engine._run_structured("return ok", MiniResult, progress=messages.append)
+
+    assert result.status == "ok"
+    assert any("제한을 초과하여 gpt-5.6-luna로 자동 전환" in message for message in messages)
+    assert commands[-1][commands[-1].index("--model") + 1] == "gpt-5.6-luna"
+
+
+def test_default_synthesis_prefers_fast_model_with_ten_minute_limit(
+    monkeypatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr("prestudy.ai.shutil.which", lambda _: "codex")
+    monkeypatch.setattr(
+        "prestudy.ai.subprocess.run",
+        lambda command, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="Logged in using ChatGPT\n",
+            stderr="",
+        ),
+    )
+    engine = CodexStudyEngine(work_root=tmp_path)
+    captured = {}
+    sentinel = object()
+
+    def fake_structured(prompt, output_model, **kwargs):
+        captured.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr(engine, "_run_structured", fake_structured)
+    lecture = LectureRequest(course="미생물학", professor="안현종", topic="Enterococcus")
+
+    result = engine.synthesize(lecture, [])
+
+    assert result is sentinel
+    assert captured["preferred_model"] == "gpt-5.6-luna"
+    assert captured["timeout_seconds"] == 600
 
 
 def test_codex_engine_falls_back_when_default_model_is_at_capacity(

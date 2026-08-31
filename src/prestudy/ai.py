@@ -28,6 +28,10 @@ _CAPACITY_FALLBACK_MODEL = os.environ.get(
     "PRESTUDY_CAPACITY_FALLBACK_MODEL",
     "gpt-5.6-luna",
 ).strip()
+_PROGRESS_HEARTBEAT_SECONDS = max(
+    10,
+    int(os.environ.get("PRESTUDY_CODEX_HEARTBEAT_SECONDS", "60")),
+)
 
 
 def _subscription_env() -> dict[str, str]:
@@ -91,7 +95,8 @@ class CodexStudyEngine:
         model: str = "",
         executable: str = "codex",
         work_root: Path | str | None = None,
-        timeout_seconds: int = 3600,
+        timeout_seconds: int | None = None,
+        synthesis_timeout_seconds: int | None = None,
         reasoning_effort: str | None = None,
     ) -> None:
         resolved = shutil.which(executable)
@@ -110,7 +115,18 @@ class CodexStudyEngine:
         self.reasoning_effort = selected_effort
         self.work_root = Path(work_root).resolve() if work_root is not None else WORK_ROOT
         self.work_root.mkdir(parents=True, exist_ok=True)
-        self.timeout_seconds = timeout_seconds
+        self.timeout_seconds = max(
+            1,
+            timeout_seconds
+            if timeout_seconds is not None
+            else int(os.environ.get("PRESTUDY_CODEX_TIMEOUT_SECONDS", "600")),
+        )
+        self.synthesis_timeout_seconds = max(
+            1,
+            synthesis_timeout_seconds
+            if synthesis_timeout_seconds is not None
+            else int(os.environ.get("PRESTUDY_SYNTHESIS_TIMEOUT_SECONDS", "600")),
+        )
         self.check_subscription_login()
 
     def login_status(self) -> str:
@@ -141,6 +157,8 @@ class CodexStudyEngine:
         output_model: type[BaseModel],
         files: list[Path] | None = None,
         progress: Progress = lambda _: None,
+        preferred_model: str | None = None,
+        timeout_seconds: int | None = None,
     ):
         # Codex may leave rendered PDF previews with restrictive Windows ACLs.
         # Keep each isolated run directory instead of letting TemporaryDirectory
@@ -206,7 +224,8 @@ class CodexStudyEngine:
                 "--cd",
                 str(root),
             ]
-            model_candidates = [self.codex_model]
+            selected_model = self.codex_model if preferred_model is None else preferred_model
+            model_candidates = [selected_model]
             if (
                 _CAPACITY_FALLBACK_MODEL
                 and _CAPACITY_FALLBACK_MODEL not in model_candidates
@@ -235,20 +254,56 @@ class CodexStudyEngine:
                                 f"(모델: {candidate_model or '기본값'}, "
                                 f"추론 강도: {self.reasoning_effort})"
                             )
-                            result = subprocess.run(
-                                command,
-                                input=prompt + file_context,
-                                capture_output=True,
-                                text=True,
-                                encoding="utf-8",
-                                errors="replace",
-                                timeout=self.timeout_seconds,
-                                check=False,
-                                env=_subscription_env(),
+                            call_timeout = timeout_seconds or self.timeout_seconds
+                            call_started_at = time.monotonic()
+                            heartbeat_stop = threading.Event()
+
+                            def report_heartbeat() -> None:
+                                while not heartbeat_stop.wait(_PROGRESS_HEARTBEAT_SECONDS):
+                                    elapsed_seconds = round(time.monotonic() - call_started_at)
+                                    elapsed_minutes, elapsed_remainder = divmod(elapsed_seconds, 60)
+                                    limit_minutes, limit_remainder = divmod(call_timeout, 60)
+                                    elapsed_text = f"{elapsed_minutes}분 {elapsed_remainder}초"
+                                    limit_text = (
+                                        f"{limit_minutes}분"
+                                        if limit_remainder == 0
+                                        else f"{limit_minutes}분 {limit_remainder}초"
+                                    )
+                                    progress(
+                                        "Codex 분석 계속 진행 중 · "
+                                        f"경과 {elapsed_text} / 제한 {limit_text}"
+                                    )
+
+                            heartbeat = threading.Thread(
+                                target=report_heartbeat,
+                                name="codex-progress-heartbeat",
+                                daemon=True,
                             )
+                            heartbeat.start()
+                            try:
+                                result = subprocess.run(
+                                    command,
+                                    input=prompt + file_context,
+                                    capture_output=True,
+                                    text=True,
+                                    encoding="utf-8",
+                                    errors="replace",
+                                    timeout=call_timeout,
+                                    check=False,
+                                    env=_subscription_env(),
+                                )
+                            finally:
+                                heartbeat_stop.set()
+                                heartbeat.join(timeout=1)
                     except subprocess.TimeoutExpired as exc:
+                        if model_index < len(model_candidates) - 1:
+                            progress(
+                                f"Codex 분석이 {call_timeout // 60}분 제한을 초과하여 "
+                                f"{_CAPACITY_FALLBACK_MODEL}로 자동 전환"
+                            )
+                            break
                         raise CodexExecutionError(
-                            f"Codex 분석이 {self.timeout_seconds // 60}분 제한을 초과했습니다."
+                            f"Codex 분석이 {call_timeout // 60}분 제한을 초과했습니다."
                         ) from exc
 
                     if result.returncode == 0:
@@ -327,4 +382,6 @@ class CodexStudyEngine:
             ),
             StudyGuide,
             progress=progress,
+            preferred_model=self.codex_model or _CAPACITY_FALLBACK_MODEL or None,
+            timeout_seconds=self.synthesis_timeout_seconds,
         )

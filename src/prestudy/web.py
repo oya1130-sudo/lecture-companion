@@ -394,9 +394,13 @@ def run() -> None:
             model = st.text_input(
                 "Codex 모델",
                 value=os.environ.get("PRESTUDY_CODEX_MODEL", ""),
-                help="비워두면 현재 Codex 기본 모델을 사용합니다.",
+                help=(
+                    "비워두면 PDF 근거 추출은 Codex 기본 모델을 사용하고, "
+                    "최종 합성은 장시간 지연을 막기 위해 빠른 모델을 사용합니다."
+                ),
                 key="codex-model",
             )
+            st.caption("최종 노트 합성은 최대 10분이며, 1분마다 경과시간을 작업 기록에 표시합니다.")
             st.caption(f"가이드 설정: {guide_config}")
             if st.button("ChatGPT 로그인 상태 확인"):
                 try:
