@@ -54,10 +54,8 @@ def test_ci_builds_and_runs_container_on_native_arm64():
     assert {"arch": "arm64", "runner": "ubuntu-24.04-arm"} in matrix
 
 
-def test_windows_launcher_opens_local_browser_after_streamlit_is_ready():
+def test_windows_launcher_lets_streamlit_open_the_browser_without_a_helper_process():
     launcher = (ROOT / "run.ps1").read_text(encoding="utf-8")
 
-    assert "function Start-BrowserWhenReady" in launcher
-    assert "http://localhost:8501" in launcher
-    assert "/_stcore/health" in launcher
-    assert "Start-Process '$Url'" in launcher
+    assert "--server.headless false" in launcher
+    assert "Start-Process -FilePath 'powershell.exe'" not in launcher
