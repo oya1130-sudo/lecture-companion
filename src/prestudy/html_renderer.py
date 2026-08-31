@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .models import CitedItem, LectureRequest, SourceDocument, SourceKind, StudyGuide
+from .page_basis import citation_page_labels, page_basis_filenames
 
 
 def _safe(value: str) -> str:
@@ -24,18 +25,15 @@ def _safe(value: str) -> str:
     return html.escape(normalized, quote=True).replace("\n", "<br>")
 
 
-def _citation_pages(citations: list[str]) -> str:
-    pages: list[str] = []
-    for citation in citations:
-        for value in re.findall(r"p\.\s*(\d+(?:\s*[–-]\s*\d+)?)", citation, flags=re.IGNORECASE):
-            page = "p." + re.sub(r"\s+", "", value).replace("-", "–")
-            if page not in pages:
-                pages.append(page)
-    return " · ".join(pages)
+def _citation_pages(
+    citations: list[str],
+    allowed_filenames: set[str] | None = None,
+) -> str:
+    return " · ".join(citation_page_labels(citations, allowed_filenames))
 
 
-def _first_page(item: CitedItem) -> int:
-    match = re.search(r"\d+", _citation_pages(item.citations))
+def _first_page(item: CitedItem, allowed_filenames: set[str] | None = None) -> int:
+    match = re.search(r"\d+", _citation_pages(item.citations, allowed_filenames))
     return int(match.group()) if match else 10**9
 
 
@@ -44,14 +42,22 @@ def _range_start(value: str) -> int:
     return int(match.group()) if match else 10**9
 
 
-def _cited_item(item: CitedItem) -> str:
-    pages = _citation_pages(item.citations)
+def _cited_item(item: CitedItem, allowed_filenames: set[str] | None = None) -> str:
+    pages = _citation_pages(item.citations, allowed_filenames)
     page_html = f'<span class="page-ref">{_safe(pages)}</span>' if pages else ""
     return f'<li><div>{_safe(item.content)}</div>{page_html}</li>'
 
 
-def _cited_list(items: list[CitedItem]) -> str:
-    return '<ul class="note-list">' + "".join(_cited_item(item) for item in sorted(items, key=_first_page)) + "</ul>"
+def _cited_list(
+    items: list[CitedItem],
+    allowed_filenames: set[str] | None = None,
+) -> str:
+    ordered = sorted(items, key=lambda item: _first_page(item, allowed_filenames))
+    return (
+        '<ul class="note-list">'
+        + "".join(_cited_item(item, allowed_filenames) for item in ordered)
+        + "</ul>"
+    )
 
 
 def _source_manifest(sources: Sequence[SourceDocument]) -> str:
@@ -62,7 +68,12 @@ def _source_manifest(sources: Sequence[SourceDocument]) -> str:
             grouped[source.kind].append(filename)
 
     groups: list[str] = []
-    for kind in (SourceKind.GUIDE, SourceKind.JOKCHEK, SourceKind.SUMMARY):
+    for kind in (
+        SourceKind.GUIDE,
+        SourceKind.LECTURE,
+        SourceKind.JOKCHEK,
+        SourceKind.SUMMARY,
+    ):
         filenames = grouped[kind]
         if not filenames:
             continue
@@ -94,6 +105,8 @@ def render_study_guide_html(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ordered_flow = sorted(guide.lecture_flow, key=lambda section: (_range_start(section.source_range), section.order))
     source_manifest = _source_manifest(sources)
+    page_filenames, page_kind = page_basis_filenames(sources)
+    page_filter = page_filenames or None
     document_key = hashlib.sha1(
         f"{lecture.course}|{lecture.professor}|{lecture.topic}|{lecture.lecture_date}".encode("utf-8")
     ).hexdigest()[:12]
@@ -127,9 +140,9 @@ def render_study_guide_html(
     <span class="chevron">⌄</span>
   </summary>
   <div class="flow-content">
-    <div class="note-panel core"><h4>필기 대신 읽을 핵심</h4>{_cited_list(section.ready_notes)}</div>
-    <div class="note-panel emphasis"><h4>강조될 가능성이 높은 지점</h4>{_cited_list(section.emphasis_signals)}</div>
-    <div class="note-panel listen"><h4>설명을 들으며 연결할 것</h4>{_cited_list(section.listen_for)}</div>
+    <div class="note-panel core"><h4>필기 대신 읽을 핵심</h4>{_cited_list(section.ready_notes, page_filter)}</div>
+    <div class="note-panel emphasis"><h4>강조될 가능성이 높은 지점</h4>{_cited_list(section.emphasis_signals, page_filter)}</div>
+    <div class="note-panel listen"><h4>설명을 들으며 연결할 것</h4>{_cited_list(section.listen_for, page_filter)}</div>
     {live_notes}
   </div>
 </details>'''
@@ -137,7 +150,7 @@ def render_study_guide_html(
 
     quick_cards = []
     for card in guide.quick_reference:
-        pages = _citation_pages(card.citations)
+        pages = _citation_pages(card.citations, page_filter)
         page_html = f'<span class="page-ref">{_safe(pages)}</span>' if pages else ""
         quick_cards.append(
             f'''<article class="reference-card searchable">
@@ -148,8 +161,8 @@ def render_study_guide_html(
 </article>'''
         )
 
-    focus_items = _cited_list(guide.professor_and_exam_signals)
-    confusion_items = _cited_list(guide.common_confusions)
+    focus_items = _cited_list(guide.professor_and_exam_signals, page_filter)
+    confusion_items = _cited_list(guide.common_confusions, page_filter)
     how_to = "".join(f"<li>{_safe(item)}</li>" for item in guide.how_to_use)
     checklist = "".join(
         f'<label class="check-row"><input type="checkbox" data-store="{document_key}-global-{index}"> {_safe(item)}</label>'
@@ -206,7 +219,7 @@ search.addEventListener("input",()=>{const q=search.value.trim().toLowerCase();l
 <div class="shell">
 <nav class="sidebar"><h2>강의 흐름</h2>{''.join(nav_links)}</nav>
 <main class="content">
-  <section class="hero"><div class="eyebrow">{_safe(lecture.course)} · {_safe(lecture.professor)}</div><h1>{_safe(guide.title)}</h1><p>{_safe(guide.subtitle)}</p><div class="meta"><span>{_safe(lecture.topic)}</span><span>{_safe(lecture.lecture_date or '강의일 미지정')}</span><span>{len(ordered_flow)}개 구간</span></div>{source_manifest}</section>
+  <section class="hero"><div class="eyebrow">{_safe(lecture.course)} · {_safe(lecture.professor)}</div><h1>{_safe(guide.title)}</h1><p>{_safe(guide.subtitle)}</p><div class="meta"><span>{_safe(lecture.topic)}</span><span>{_safe(lecture.lecture_date or '강의일 미지정')}</span><span>{len(ordered_flow)}개 구간</span><span>페이지 기준 · {_safe(page_kind.value)}</span></div>{source_manifest}</section>
   <section class="usage"><h2>이 파일을 쓰는 법</h2><ol>{how_to}</ol></section>
   <div class="flow-actions"><button id="collapse">모두 접기</button><button id="expand">모두 펼치기</button></div>
   <div id="empty-search" class="empty-search">검색 결과가 없습니다.</div>

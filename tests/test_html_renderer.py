@@ -80,3 +80,25 @@ def test_html_orders_flow_by_source_page(tmp_path: Path):
     render_study_guide_html(_guide(), lecture, output)
     text = output.read_text(encoding="utf-8")
     assert text.index("첫 번째 범위") < text.index("두 번째 범위")
+
+
+def test_html_displays_only_lecture_material_pages_when_selected(tmp_path: Path):
+    output = tmp_path / "강의자료기준.html"
+    lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
+    guide = _guide()
+    mixed_citations = ["[족첵파일.pdf p.99]", "[강의자료.pdf p.5]"]
+    for section in guide.lecture_flow:
+        for item in [*section.ready_notes, *section.emphasis_signals, *section.listen_for]:
+            item.citations = mixed_citations
+    sources = [
+        SourceDocument(path=tmp_path / "강의자료.pdf", kind=SourceKind.LECTURE),
+        SourceDocument(path=tmp_path / "족첵파일.pdf", kind=SourceKind.JOKCHEK),
+    ]
+
+    render_study_guide_html(guide, lecture, output, sources)
+    text = output.read_text(encoding="utf-8")
+
+    assert "페이지 기준 · 강의자료" in text
+    assert "강의자료.pdf" in text
+    assert "p.5" in text
+    assert "p.99" not in text

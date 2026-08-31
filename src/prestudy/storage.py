@@ -52,6 +52,37 @@ def _default_drive_source_root(environment_name: str, folder_name: str) -> Path 
     return None
 
 
+def _default_lecture_source_root() -> Path | None:
+    configured = os.environ.get("PRESTUDY_LECTURE_ROOT", "").strip()
+    if configured:
+        path = Path(configured).expanduser().resolve()
+        return path if path.is_dir() else None
+
+    relative_paths = (
+        Path("의학과 1-2") / "2026년" / "학습부",
+        Path("2026년") / "학습부",
+    )
+    for drive_letter in ("H", "G"):
+        direct = Path(f"{drive_letter}:/내 드라이브")
+        for relative in relative_paths:
+            candidate = direct / relative
+            if candidate.is_dir():
+                return candidate
+
+        shortcuts = Path(f"{drive_letter}:/.shortcut-targets-by-id")
+        if not shortcuts.is_dir():
+            continue
+        try:
+            for shortcut in shortcuts.iterdir():
+                for relative in relative_paths:
+                    candidate = shortcut / relative
+                    if candidate.is_dir():
+                        return candidate
+        except OSError:
+            continue
+    return None
+
+
 STORAGE_ROOT = _default_root()
 DATA_ROOT = STORAGE_ROOT / "data"
 GUIDES_ROOT = DATA_ROOT / "guides"
@@ -63,4 +94,5 @@ DOWNLOAD_ROOT = STORAGE_ROOT / "downloads"
 JOB_STATE_PATH = STORAGE_ROOT / "jobs.json"
 DRIVE_OUTPUT_ROOT = _default_drive_output_root()
 JOKCHEK_DRIVE_ROOT = _default_drive_source_root("PRESTUDY_JOKCHEK_ROOT", "2026 본과 1-2 족첵")
+LECTURE_DRIVE_ROOT = _default_lecture_source_root()
 SUMMARY_DRIVE_ROOT = _default_drive_source_root("PRESTUDY_SUMMARY_ROOT", "써머리부")

@@ -13,7 +13,7 @@ from typing import Callable
 from pydantic import BaseModel
 from pypdf import PdfReader
 
-from .models import LectureRequest, SourceDigest, SourceDocument, StudyGuide
+from .models import LectureRequest, SourceDigest, SourceDocument, SourceKind, StudyGuide
 from .prompts import digest_prompt, synthesis_prompt
 from .storage import WORK_ROOT
 
@@ -236,6 +236,12 @@ class CodexStudyEngine:
             ensure_ascii=False,
         )
         return self._run_structured(
-            synthesis_prompt(lecture, payload),
+            synthesis_prompt(
+                lecture,
+                payload,
+                has_lecture_material=any(
+                    item.source_kind == SourceKind.LECTURE.value for item in digests
+                ),
+            ),
             StudyGuide,
         )

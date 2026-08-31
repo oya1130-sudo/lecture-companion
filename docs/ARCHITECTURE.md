@@ -6,6 +6,7 @@
 Streamlit UI
   ├─ 개인 학습가이드 설정
   ├─ Google Drive 마운트 또는 파일 업로드
+  │    └─ 족첵 + 선택적 강의자료 + 선택적 써머리
   └─ JobManager 작업 큐
        ├─ jobs.json: 완료·실패 작업 이력 영속화
        └─ StudyGuideService
@@ -61,6 +62,8 @@ Streamlit UI
 - 전체 Codex 프로세스 기본 동시 수: 2
 
 환경변수 `PRESTUDY_JOB_WORKERS`, `PRESTUDY_SOURCE_WORKERS`, `PRESTUDY_CODEX_CONCURRENCY`로 조절합니다. 같은 자료·강의 조건·모델은 캐시를 사용합니다.
+
+별도 강의자료가 선택되면 합성 단계와 HTML 렌더링 단계 모두 강의자료 인용만 페이지 기준으로 사용합니다. 교수명·수업 제목과 시험 출제 신호는 족첵이 기준이며, 강의자료가 없을 때는 족첵이 내용과 페이지 기준을 함께 담당합니다.
 
 ## 신뢰 경계
 

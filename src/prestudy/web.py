@@ -19,6 +19,7 @@ from .storage import (
     GUIDES_ROOT,
     JOB_STATE_PATH,
     JOKCHEK_DRIVE_ROOT,
+    LECTURE_DRIVE_ROOT,
     OUTPUT_ROOT,
     STORAGE_ROOT,
     SUMMARY_DRIVE_ROOT,
@@ -413,16 +414,23 @@ def run() -> None:
     )
 
     jokchek_uploads = []
+    lecture_uploads = []
     summary_uploads = []
     drive_jokchek_values: list[str] = []
+    drive_lecture_values: list[str] = []
     drive_summary_values: list[str] = []
     if source_mode == "Google Drive에서 선택":
         if not drive_available:
             st.error("서버에서 족첵 Google Drive 폴더를 찾지 못했습니다. 기기 업로드를 사용해 주세요.")
         elif not course:
-            st.info("과목을 선택하면 Google Drive의 족첵과 선배 써머리 목록이 나타납니다.")
+            st.info("과목을 선택하면 Google Drive의 족첵·강의자료·선배 써머리 목록이 나타납니다.")
         else:
             jokchek_options = _drive_pdf_options(str(JOKCHEK_DRIVE_ROOT), course)
+            lecture_options = (
+                _drive_pdf_options(str(LECTURE_DRIVE_ROOT), course)
+                if LECTURE_DRIVE_ROOT is not None
+                else []
+            )
             summary_options = (
                 _drive_pdf_options(str(SUMMARY_DRIVE_ROOT), course)
                 if SUMMARY_DRIVE_ROOT is not None
@@ -430,51 +438,78 @@ def run() -> None:
             )
             st.caption(
                 f"서버의 Google Drive에서 {course} 족첵 {len(jokchek_options)}개, "
-                f"써머리 {len(summary_options)}개를 찾았습니다. 파일명 일부를 입력해 검색할 수 있습니다."
+                f"강의자료 {len(lecture_options)}개, 써머리 {len(summary_options)}개를 찾았습니다. "
+                "파일명 일부를 입력해 검색할 수 있습니다."
             )
-            left, right = st.columns(2)
-            with left:
-                drive_jokchek_values = st.multiselect(
-                    "족첵 PDF",
-                    jokchek_options,
-                    format_func=_drive_option_label,
-                    placeholder="족첵 파일 검색·선택",
-                    key=f"drive-jokchek-{upload_batch}-{course}",
-                )
-            with right:
-                drive_summary_values = st.multiselect(
-                    "선배 써머리 PDF (선택)",
-                    summary_options,
-                    format_func=_drive_option_label,
-                    placeholder="써머리 파일 검색·선택",
-                    key=f"drive-summary-{upload_batch}-{course}",
-                )
+            drive_jokchek_values = st.multiselect(
+                "족첵 PDF (필수)",
+                jokchek_options,
+                format_func=_drive_option_label,
+                placeholder="족첵 파일 검색·선택",
+                key=f"drive-jokchek-{upload_batch}-{course}",
+            )
+            with st.container(border=True):
+                st.markdown("**선택 자료**")
+                st.caption("족첵에 강의록이 없을 때만 강의자료를 추가하세요.")
+                left, right = st.columns(2)
+                with left:
+                    drive_lecture_values = st.multiselect(
+                        "강의자료 PDF (선택)",
+                        lecture_options,
+                        format_func=_drive_option_label,
+                        placeholder="강의자료 검색·선택",
+                        key=f"drive-lecture-{upload_batch}-{course}",
+                    )
+                with right:
+                    drive_summary_values = st.multiselect(
+                        "선배 써머리 PDF (선택)",
+                        summary_options,
+                        format_func=_drive_option_label,
+                        placeholder="써머리 파일 검색·선택",
+                        key=f"drive-summary-{upload_batch}-{course}",
+                    )
     else:
         st.caption("Drive 목록에 없는 자료만 태블릿이나 노트북에서 직접 업로드하세요.")
-        left, right = st.columns(2)
-        with left:
-            jokchek_uploads = st.file_uploader(
-                "족첵 PDF",
-                type=["pdf", "application/pdf"],
-                accept_multiple_files=True,
-                max_upload_size=500,
-                key=f"jokchek-{upload_batch}",
-            )
-            _upload_summary("족첵", jokchek_uploads)
-        with right:
-            summary_uploads = st.file_uploader(
-                "선배 써머리 PDF (선택)",
-                type=["pdf", "application/pdf"],
-                accept_multiple_files=True,
-                max_upload_size=500,
-                key=f"summary-{upload_batch}",
-            )
-            _upload_summary("선배 써머리", summary_uploads)
+        jokchek_uploads = st.file_uploader(
+            "족첵 PDF (필수)",
+            type=["pdf", "application/pdf"],
+            accept_multiple_files=True,
+            max_upload_size=500,
+            key=f"jokchek-{upload_batch}",
+        )
+        _upload_summary("족첵", jokchek_uploads)
+        with st.container(border=True):
+            st.markdown("**선택 자료**")
+            st.caption("족첵에 강의록이 없을 때만 강의자료를 추가하세요.")
+            left, right = st.columns(2)
+            with left:
+                lecture_uploads = st.file_uploader(
+                    "강의자료 PDF (선택)",
+                    type=["pdf", "application/pdf"],
+                    accept_multiple_files=True,
+                    max_upload_size=500,
+                    key=f"lecture-{upload_batch}",
+                )
+                _upload_summary("강의자료", lecture_uploads)
+            with right:
+                summary_uploads = st.file_uploader(
+                    "선배 써머리 PDF (선택)",
+                    type=["pdf", "application/pdf"],
+                    accept_multiple_files=True,
+                    max_upload_size=500,
+                    key=f"summary-{upload_batch}",
+                )
+                _upload_summary("선배 써머리", summary_uploads)
 
     selected_jokchek = (
         drive_jokchek_values
         if source_mode == "Google Drive에서 선택"
         else jokchek_uploads
+    )
+    selected_lecture = (
+        drive_lecture_values
+        if source_mode == "Google Drive에서 선택"
+        else lecture_uploads
     )
     detected_metadata: LectureMetadata | None = None
     metadata_error = ""
@@ -496,6 +531,10 @@ def run() -> None:
             topic_column.caption("수업 제목")
             topic_column.write(detected_metadata.topic)
             st.caption("선배 써머리와 학습가이드의 교수명·제목은 자동 인식에 사용하지 않습니다.")
+            if selected_lecture:
+                st.success("페이지 기준 · 선택한 강의자료")
+            else:
+                st.info("페이지 기준 · 족첵 속 강의록")
         elif metadata_error:
             st.warning(metadata_error)
         else:
@@ -523,12 +562,14 @@ def run() -> None:
             if source_mode == "Google Drive에서 선택":
                 try:
                     jokchek_paths = _validated_drive_paths(drive_jokchek_values, JOKCHEK_DRIVE_ROOT)
+                    lecture_paths = _validated_drive_paths(drive_lecture_values, LECTURE_DRIVE_ROOT)
                     summary_paths = _validated_drive_paths(drive_summary_values, SUMMARY_DRIVE_ROOT)
                 except ValueError as exc:
                     st.error(str(exc))
                     st.stop()
             else:
                 jokchek_paths = _save_uploads(jokchek_uploads, job_root / "jokchek")
+                lecture_paths = _save_uploads(lecture_uploads, job_root / "lectures")
                 summary_paths = _save_uploads(summary_uploads, job_root / "summaries")
             lecture = LectureRequest(
                 course=course,
@@ -538,6 +579,7 @@ def run() -> None:
                 summary_reliability=RELIABILITY_LABELS[reliability_label],
             )
             sources = [SourceDocument(path=path, kind=SourceKind.GUIDE) for path in selected_guides]
+            sources.extend(SourceDocument(path=path, kind=SourceKind.LECTURE) for path in lecture_paths)
             sources.extend(SourceDocument(path=path, kind=SourceKind.JOKCHEK) for path in jokchek_paths)
             sources.extend(SourceDocument(path=path, kind=SourceKind.SUMMARY) for path in summary_paths)
             filename = _output_filename(

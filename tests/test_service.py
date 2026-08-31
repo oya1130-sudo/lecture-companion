@@ -100,3 +100,21 @@ def test_sources_run_in_parallel_and_finished_guide_is_reused(tmp_path: Path, mo
     assert len(rendered) == 2
     assert rendered[0][1] == sources
     assert (tmp_path / "second.html").is_file()
+
+
+def test_lecture_material_keeps_jokchek_topic_as_title_and_page_basis(tmp_path: Path):
+    guide = _guide()
+    guide.lecture_flow = []
+    lecture = LectureRequest(
+        course="약리학",
+        professor="김자은",
+        topic="Pharmacokinetics-2&metabolism",
+    )
+    sources = [
+        SourceDocument(path=tmp_path / "강의자료.pdf", kind=SourceKind.LECTURE),
+        SourceDocument(path=tmp_path / "족첵.pdf", kind=SourceKind.JOKCHEK),
+    ]
+
+    prepared = StudyGuideService._apply_page_basis(guide, lecture, sources)
+
+    assert prepared.title == "Pharmacokinetics-2&metabolism 수업 동반 노트"

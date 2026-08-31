@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class SourceKind(str, Enum):
     GUIDE = "학습가이드"
+    LECTURE = "강의자료"
     JOKCHEK = "족첵"
     SUMMARY = "선배 써머리"
 

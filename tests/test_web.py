@@ -48,6 +48,8 @@ def test_web_uses_jokchek_metadata_without_manual_professor_or_topic_fields():
     assert 'text_input("강의 주제"' not in source
     assert "infer_jokchek_metadata" in source
     assert "선배 써머리와 학습가이드의 교수명·제목은 자동 인식에 사용하지 않습니다." in source
+    assert "SourceKind.LECTURE" in source
+    assert "페이지 기준 · 선택한 강의자료" in source
 
 
 def test_drive_pdf_options_only_scan_selected_course(tmp_path: Path):
