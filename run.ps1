@@ -11,6 +11,60 @@ catch {
     # Console encoding is cosmetic; startup can continue if it cannot change.
 }
 
+$localAppUrl = 'http://localhost:8501'
+# Windows PowerShell 5.1 can wait on the IPv6 localhost address even though
+# Streamlit is listening on IPv4, so use the explicit loopback address here.
+$healthUrl = 'http://127.0.0.1:8501/_stcore/health'
+
+function Test-AppHealth {
+    param([int]$Attempts = 1)
+
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
+            if ($response.StatusCode -eq 200) {
+                return $true
+            }
+        }
+        catch {
+            if ($attempt -lt $Attempts) {
+                Start-Sleep -Milliseconds 500
+            }
+        }
+    }
+    return $false
+}
+
+function Open-AppBrowser {
+    param([Parameter(Mandatory = $true)][string]$Url)
+
+    try {
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $Url
+        $startInfo.UseShellExecute = $true
+        [System.Diagnostics.Process]::Start($startInfo) | Out-Null
+        return
+    }
+    catch {
+        $explorer = Join-Path $env:WINDIR 'explorer.exe'
+        if (Test-Path -LiteralPath $explorer) {
+            & $explorer $Url
+            if ($LASTEXITCODE -eq 0) {
+                return
+            }
+        }
+        throw "브라우저를 자동으로 열지 못했습니다. 주소창에 $Url 을 입력해 주세요."
+    }
+}
+
+# A second double-click should reopen the existing app instead of failing on
+# the occupied port. This check intentionally runs before environment setup.
+if (Test-AppHealth -Attempts 4) {
+    Write-Host '이미 실행 중인 앱을 브라우저에서 엽니다.'
+    Open-AppBrowser -Url $localAppUrl
+    return
+}
+
 function Find-CodexCommand {
     $existing = Get-Command codex.exe -ErrorAction SilentlyContinue
     if ($existing) {
@@ -153,13 +207,52 @@ catch {
 }
 
 Write-Host "Tablet URL (same Wi-Fi): http://${lanAddress}:8501"
-& $pythonCommand -m streamlit run (Join-Path $PSScriptRoot 'app.py') `
-    --browser.gatherUsageStats false `
-    --browser.serverAddress $lanAddress `
-    --server.headless false `
-    --server.showEmailPrompt false `
-    --server.address 0.0.0.0 `
-    --server.port 8501 `
-    --server.maxUploadSize 500 `
-    --server.maxMessageSize 500 `
-    --server.websocketPingInterval 20
+$appPath = Join-Path $PSScriptRoot 'app.py'
+$workDirectory = Join-Path $PSScriptRoot '.prestudy-work'
+New-Item -ItemType Directory -Path $workDirectory -Force | Out-Null
+$stdoutLog = Join-Path $workDirectory 'streamlit.stdout.log'
+$stderrLog = Join-Path $workDirectory 'streamlit.stderr.log'
+$quotedAppPath = '"' + $appPath + '"'
+$streamlitArguments = @(
+    '-m', 'streamlit', 'run', $quotedAppPath,
+    '--browser.gatherUsageStats', 'false',
+    '--browser.serverAddress', $lanAddress,
+    '--server.headless', 'true',
+    '--server.showEmailPrompt', 'false',
+    '--server.address', '0.0.0.0',
+    '--server.port', '8501',
+    '--server.maxUploadSize', '500',
+    '--server.maxMessageSize', '500',
+    '--server.websocketPingInterval', '20'
+)
+
+$serverProcess = Start-Process `
+    -FilePath $pythonCommand `
+    -ArgumentList $streamlitArguments `
+    -WorkingDirectory $PSScriptRoot `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput $stdoutLog `
+    -RedirectStandardError $stderrLog `
+    -PassThru
+
+$deadline = (Get-Date).AddSeconds(60)
+while ((Get-Date) -lt $deadline) {
+    if (Test-AppHealth) {
+        Write-Host "App URL: $localAppUrl"
+        Open-AppBrowser -Url $localAppUrl
+        return
+    }
+    if ($serverProcess.HasExited) {
+        $errorTail = ''
+        if (Test-Path -LiteralPath $stderrLog) {
+            $errorTail = (Get-Content -LiteralPath $stderrLog -Tail 20 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+        }
+        throw "앱 서버가 시작 중 종료되었습니다.$([Environment]::NewLine)$errorTail"
+    }
+    Start-Sleep -Milliseconds 500
+}
+
+if (-not $serverProcess.HasExited) {
+    Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
+}
+throw "앱 서버가 60초 안에 준비되지 않았습니다. 로그를 확인해 주세요: $stderrLog"
