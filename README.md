@@ -47,6 +47,8 @@ Google Drive 데스크톱 앱이 연결되어 있고 다음 폴더명이 존재�
 
 Docker를 실행할 수 있는 Linux VM에 앱과 Codex CLI를 함께 올리고, Tailscale을 통해 태블릿과 다른 기기에서 안전하게 접속할 수 있습니다. 클라우드 배포에서는 업로드, 캐시, 완성 HTML, 작업 이력과 Codex 로그인을 영구 볼륨에 저장합니다.
 
+비용 없이 먼저 시험하려면 [Oracle Cloud Always Free 배포 안내](docs/ORACLE_FREE_DEPLOYMENT.md)를 따르세요. 서울 리전 ARM VM 1대(2 OCPU·12GB)에 맞춘 설정과 태블릿 접속 절차가 들어 있습니다. 무료 VM은 유휴 상태로 판단되면 회수될 수 있으므로 결과물 백업이 필요합니다.
+
 ```bash
 git clone https://github.com/oya1130-sudo/lecture-companion.git
 cd lecture-companion
@@ -55,7 +57,7 @@ docker compose up -d --build
 docker compose exec app codex login --device-auth
 ```
 
-VM 준비부터 태블릿 HTTPS 접속, 업데이트와 백업 주의사항까지는 [개인용 클라우드 VM 배포 안내](docs/CLOUD_DEPLOYMENT.md)를 따르세요. 이 앱은 별도 사용자 인증이 없으므로 `8501` 포트를 공용 인터넷에 직접 열지 않습니다.
+다른 유료 VM을 쓸 때의 공통 절차는 [개인용 클라우드 VM 배포 안내](docs/CLOUD_DEPLOYMENT.md)를 따르세요. 이 앱은 별도 사용자 인증이 없으므로 `8501` 포트를 공용 인터넷에 직접 열지 않습니다.
 
 ## 저장 구조
 

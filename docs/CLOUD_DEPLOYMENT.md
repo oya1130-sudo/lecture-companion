@@ -2,6 +2,8 @@
 
 이 구성은 한 사람이 자기 ChatGPT 계정으로 사용하는 개인용 배포를 전제로 합니다. Streamlit과 Codex CLI는 하나의 Docker 컨테이너에서 실행하고, 업로드·캐시·완성본·Codex 로그인 정보는 Docker 영구 볼륨에 보관합니다. 웹 포트는 호스트의 `127.0.0.1`에만 열고 Tailscale Serve로 본인의 기기에만 HTTPS 접속을 허용합니다.
 
+비용 없이 시작하는 Oracle Cloud ARM VM의 화면별 설정과 무료 한도는 [Oracle Cloud 무료 배포 안내](ORACLE_FREE_DEPLOYMENT.md)를 참고하세요. 이 문서는 공급자와 무관한 유료 VM의 공통 절차입니다.
+
 ## 1. VM 준비
 
 권장 시작 사양은 다음과 같습니다.

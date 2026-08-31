@@ -35,3 +35,20 @@ def test_docker_context_excludes_secrets_and_user_data():
     }
 
     assert {".env", ".streamlit/secrets.toml", "credentials.json", "token.json", "*.pdf"} <= ignored
+
+
+def test_oracle_free_profile_uses_conservative_concurrency():
+    profile = (ROOT / ".env.oracle.example").read_text(encoding="utf-8")
+
+    assert "PRESTUDY_JOB_WORKERS=2" in profile
+    assert "PRESTUDY_SOURCE_WORKERS=2" in profile
+    assert "PRESTUDY_CODEX_CONCURRENCY=1" in profile
+
+
+def test_ci_builds_and_runs_container_on_native_arm64():
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    )
+    matrix = workflow["jobs"]["docker"]["strategy"]["matrix"]["include"]
+
+    assert {"arch": "arm64", "runner": "ubuntu-24.04-arm"} in matrix
