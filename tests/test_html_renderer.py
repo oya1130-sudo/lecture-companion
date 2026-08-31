@@ -4,6 +4,7 @@ from prestudy.html_renderer import render_study_guide_html
 from prestudy.models import (
     CauseEffectFlow,
     CitedItem,
+    CoreNote,
     FinalChecklist,
     LectureFlowSection,
     LectureRequest,
@@ -17,6 +18,13 @@ from prestudy.models import (
 
 def _guide() -> StudyGuide:
     cited = CitedItem(content="분포용적과 반감기의 관계", citations=["[족첵파일.pdf p.12]"])
+    core_note = CoreNote(
+        heading="분포용적과 반감기",
+        kind="기전",
+        takeaway="분포용적과 반감기는 clearance를 통해 연결된다.",
+        details=["Vd가 증가하면 다른 조건이 같을 때 반감기가 길어진다.", "t1/2 = 0.693 × Vd / CL"],
+        citations=["[족첵파일.pdf p.12]"],
+    )
     return StudyGuide(
         title="약리학 수업 동반 노트",
         subtitle="강의록 옆에 두는 필기 대체 자료",
@@ -26,7 +34,7 @@ def _guide() -> StudyGuide:
                 order=2,
                 source_range="p.20–30",
                 title="두 번째 범위",
-                ready_notes=[cited],
+                ready_notes=[core_note],
                 emphasis_signals=[cited],
                 listen_for=[cited],
                 minimal_live_notes=["올해 제외 범위:"],
@@ -35,7 +43,7 @@ def _guide() -> StudyGuide:
                 order=1,
                 source_range="p.1–19",
                 title="첫 번째 범위",
-                ready_notes=[cited],
+                ready_notes=[core_note],
                 emphasis_signals=[cited],
                 listen_for=[cited],
                 minimal_live_notes=[],
@@ -50,6 +58,23 @@ def _guide() -> StudyGuide:
         uncertainties=["현재 강조점은 수업에서 확인"],
         source_notes=["족첵을 우선 사용"],
     )
+
+
+def test_legacy_ready_note_is_migrated_to_core_note():
+    legacy = CitedItem(content="legacy takeaway", citations=["[jokchek.pdf p.1]"])
+    section = LectureFlowSection(
+        order=1,
+        source_range="p.1",
+        title="Legacy section",
+        ready_notes=[legacy],
+        emphasis_signals=[],
+        listen_for=[],
+        minimal_live_notes=[],
+    )
+
+    assert section.ready_notes[0].heading == "핵심 내용"
+    assert section.ready_notes[0].takeaway == "legacy takeaway"
+    assert section.ready_notes[0].citations == ["[jokchek.pdf p.1]"]
 
 
 def test_html_shows_source_files_on_cover_but_not_in_inline_citations(tmp_path: Path):
@@ -196,3 +221,7 @@ def test_html_uses_exam_focused_companion_note_layout(tmp_path: Path):
     assert 'blockquote class="trap-point' in text
     assert "최종 체크리스트" in text
     assert "Cause &amp; Effect" in text
+    assert 'class="core-note-card searchable"' in text
+    assert "분포용적과 반감기" in text
+    assert "2개 핵심 개념" not in text
+    assert "1개 핵심 개념" in text

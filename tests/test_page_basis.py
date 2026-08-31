@@ -2,6 +2,7 @@ from pathlib import Path
 
 from prestudy.models import (
     CitedItem,
+    CoreNote,
     LectureFlowSection,
     SourceDocument,
     SourceKind,
@@ -16,11 +17,20 @@ from prestudy.page_basis import (
 
 
 def _guide() -> StudyGuide:
-    lecture_cited = CitedItem(
-        content="강의자료 근거",
+    lecture_cited = CoreNote(
+        heading="강의자료 근거",
+        kind="정의",
+        takeaway="강의자료 근거",
+        details=[],
         citations=["[강의자료.pdf p.7-9]", "[족첵.pdf p.101]"],
     )
-    jokchek_only = CitedItem(content="족보 근거", citations=["[족첵.pdf p.102]"])
+    jokchek_only = CoreNote(
+        heading="족보 근거",
+        kind="정의",
+        takeaway="족보 근거",
+        details=[],
+        citations=["[족첵.pdf p.102]"],
+    )
     return StudyGuide(
         title="원래 제목",
         subtitle="테스트",

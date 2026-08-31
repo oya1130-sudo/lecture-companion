@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Sequence
 
-from .models import CitedItem, SourceDocument, SourceKind, StudyGuide
+from .models import CoreNote, CitedItem, SourceDocument, SourceKind, StudyGuide
 
 
 _CITATION = re.compile(
@@ -53,7 +53,7 @@ def page_basis_filenames(sources: Sequence[SourceDocument]) -> tuple[set[str], S
     )
 
 
-def _section_citations(items: Iterable[CitedItem]) -> list[str]:
+def _section_citations(items: Iterable[CitedItem | CoreNote]) -> list[str]:
     return [citation for item in items for citation in item.citations]
 
 

@@ -22,7 +22,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from .models import CitedItem, LectureRequest, StudyGuide
+from .models import CoreNote, CitedItem, LectureRequest, StudyGuide
 
 
 NAVY = colors.HexColor("#18324A")
@@ -73,7 +73,7 @@ def _citation_pages(citations: list[str]) -> str:
     return " · ".join(pages)
 
 
-def _first_page(item: CitedItem) -> int:
+def _first_page(item: CitedItem | CoreNote) -> int:
     pages = _citation_pages(item.citations)
     match = re.search(r"\d+", pages)
     return int(match.group()) if match else 10**9
@@ -163,6 +163,47 @@ def render_study_guide(guide: StudyGuide, lecture: LectureRequest, output_path: 
         ]))
         story.append(block)
 
+    def core_notes_block(items: list[CoreNote]):
+        if not items:
+            return
+        story.append(Paragraph("필기 대신 읽을 핵심", subheading))
+        rows = []
+        for item in sorted(items, key=_first_page):
+            pages = _citation_pages(item.citations)
+            details = "<br/>".join(f"- {_safe(detail)}" for detail in item.details)
+            details_html = f"<br/>{details}" if details else ""
+            pages_html = (
+                f"<br/><font color='#66727D' size='8'>{_safe(pages)}</font>"
+                if pages
+                else ""
+            )
+            rows.append(
+                [
+                    Paragraph(
+                        f"<font color='#2F6B8A' size='8'><b>{_safe(item.kind)}</b></font> "
+                        f"<b>{_safe(item.heading)}</b><br/>"
+                        f"{_safe(item.takeaway)}{details_html}{pages_html}",
+                        body,
+                    )
+                ]
+            )
+        block = Table(rows, colWidths=[160 * mm])
+        block.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#C9D7DF")),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5ECEF")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 7),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ]
+            )
+        )
+        story.append(block)
+
     def add_items(label: str, items: list[CitedItem], background=None):
         story.append(Paragraph(label, heading))
         rows = [[Paragraph(f"{i}. {_cited(item)}", body)] for i, item in enumerate(items, 1)]
@@ -208,7 +249,7 @@ def render_study_guide(guide: StudyGuide, lecture: LectureRequest, output_path: 
     for display_order, section in enumerate(ordered_flow, 1):
         story.append(Paragraph(f"{display_order}. {_safe(section.title)}", heading))
         story.append(Paragraph(f"원본 강의자료 위치 · {_safe(section.source_range)}", badge))
-        cited_block("필기 대신 읽을 핵심", sorted(section.ready_notes, key=_first_page), colors.white, colors.HexColor("#C9D7DF"))
+        core_notes_block(section.ready_notes)
         cited_block("강조될 가능성이 높은 지점", sorted(section.emphasis_signals, key=_first_page), PALE_YELLOW, colors.HexColor("#D9C884"))
         cited_block("설명을 들으며 연결할 것", sorted(section.listen_for, key=_first_page), PALE_BLUE, colors.HexColor("#B9CED9"))
         if section.minimal_live_notes:

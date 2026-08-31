@@ -9,6 +9,7 @@ from pathlib import Path
 from .models import (
     CauseEffectFlow,
     CitedItem,
+    CoreNote,
     LectureRequest,
     SourceDocument,
     SourceKind,
@@ -45,7 +46,10 @@ def _citation_pages(
     return " · ".join(citation_page_labels(citations, allowed_filenames))
 
 
-def _first_page(item: CitedItem, allowed_filenames: set[str] | None = None) -> int:
+def _first_page(
+    item: CitedItem | CoreNote,
+    allowed_filenames: set[str] | None = None,
+) -> int:
     match = re.search(r"\d+", _citation_pages(item.citations, allowed_filenames))
     return int(match.group()) if match else 10**9
 
@@ -71,6 +75,34 @@ def _cited_list(
         '<ul class="note-list">'
         + "".join(_cited_item(item, allowed_filenames) for item in ordered)
         + "</ul>"
+    )
+
+
+def _core_note_cards(
+    items: list[CoreNote],
+    allowed_filenames: set[str] | None = None,
+) -> str:
+    ordered = sorted(items, key=lambda item: _first_page(item, allowed_filenames))
+    cards: list[str] = []
+    for index, item in enumerate(ordered, 1):
+        pages = _citation_pages(item.citations, allowed_filenames)
+        page_html = f'<span class="page-ref">{_safe(pages)}</span>' if pages else ""
+        details = "".join(f"<li>{_safe(detail)}</li>" for detail in item.details)
+        detail_html = f'<ul class="core-details">{details}</ul>' if details else ""
+        cards.append(
+            '<article class="core-note-card searchable">'
+            '<div class="core-note-heading">'
+            f'<span class="core-note-index">{index:02d}</span>'
+            f'<span class="core-note-kind">{_safe(item.kind)}</span>'
+            f'<h5>{_safe(item.heading)}</h5>{page_html}'
+            '</div>'
+            f'<p class="core-takeaway">{_safe(item.takeaway)}</p>'
+            f'{detail_html}</article>'
+        )
+    return (
+        '<div class="core-panel-heading"><h4>필기 대신 읽을 핵심</h4>'
+        f'<span>{len(ordered)}개 핵심 개념</span></div>'
+        f'<div class="core-note-list">{"".join(cards)}</div>'
     )
 
 
@@ -289,7 +321,7 @@ def render_study_guide_html(
     <span class="chevron">⌄</span>
   </summary>
   <div class="flow-content">
-    <div class="note-panel core"><h4>필기 대신 읽을 핵심</h4>{_cited_list(section.ready_notes, page_filter)}</div>
+    <div class="note-panel core">{_core_note_cards(section.ready_notes, page_filter)}</div>
     {tables_html}
     {mechanisms_html}
     {exam_panel}
@@ -359,8 +391,9 @@ body.dark{--bg:#111820;--surface:#19232d;--text:#eaf0f4;--muted:#a8b5bf;--navy:#
 '''
 
     styles += r'''
-:root{--gold:#f0b429;--gold-soft:#fff8dd;--red:#c94b4b;--red-soft:#fff1f1;--table-head:#edf3f6;--step:#eef6fa}
-body.dark{--gold:#ffd166;--gold-soft:#40371f;--red:#ff8a8a;--red-soft:#40282d;--table-head:#24333e;--step:#203746}
+:root{--gold:#f0b429;--gold-soft:#fff8dd;--red:#c94b4b;--red-soft:#fff1f1;--table-head:#edf3f6;--step:#eef6fa;--core-soft:#f4f9fb;--core-accent:#2f6b8a}
+body.dark{--gold:#ffd166;--gold-soft:#40371f;--red:#ff8a8a;--red-soft:#40282d;--table-head:#24333e;--step:#203746;--core-soft:#1d2d38;--core-accent:#75badc}
+.note-panel.core{padding:1rem;background:linear-gradient(180deg,var(--core-soft),var(--surface))}.core-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:.7rem}.core-panel-heading h4{margin:0;color:var(--navy);font-size:1.08rem}.core-panel-heading>span{color:var(--muted);font-size:.78rem;font-weight:800}.core-note-list{display:grid;gap:.65rem}.core-note-card{border:1px solid var(--line);border-left:4px solid var(--core-accent);border-radius:10px;padding:.8rem .9rem;background:var(--surface)}.core-note-heading{display:flex;align-items:center;flex-wrap:wrap;gap:.45rem}.core-note-index{color:var(--muted);font-size:.7rem;font-weight:900;font-variant-numeric:tabular-nums}.core-note-kind{padding:.08rem .42rem;border-radius:999px;background:var(--listen);color:var(--blue);font-size:.7rem;font-weight:900;white-space:nowrap}.core-note-heading h5{flex:1 1 12rem;margin:0;color:var(--navy);font-size:1rem;line-height:1.35}.core-note-heading .page-ref{margin:0}.core-takeaway{margin:.55rem 0 .35rem;font-weight:800;line-height:1.55}.core-details{margin:.25rem 0 0;padding-left:1.2rem;color:var(--text)}.core-details li{padding:.18rem 0;line-height:1.55}.core-details li::marker{color:var(--core-accent)}
 .roadmap{margin-top:1rem;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.15rem 1.3rem;box-shadow:var(--shadow)}
 .section-kicker{margin:0 0 .1rem;color:var(--blue);font-size:.76rem;font-weight:900;letter-spacing:.1em}.roadmap h2{margin:.1rem 0 .25rem;color:var(--navy)}
 .exam-style-summary{margin:.85rem 0 1rem;padding:.8rem 1rem;border-left:4px solid var(--gold);border-radius:0 10px 10px 0;background:var(--gold-soft)}.exam-style-summary strong{display:block;color:var(--navy);font-size:.82rem;margin-bottom:.15rem}
@@ -372,8 +405,8 @@ body.dark{--gold:#ffd166;--gold-soft:#40371f;--red:#ff8a8a;--red-soft:#40282d;--
 .mechanism-flow{display:flex;flex-direction:column;align-items:stretch;gap:.2rem;max-width:760px;margin:auto}.mechanism-step{padding:.62rem .8rem;border:1px solid color-mix(in srgb,var(--blue) 35%,var(--line));border-radius:10px;background:var(--step);text-align:center;font-weight:750}.mechanism-arrow{text-align:center;color:var(--blue);font-size:1.25rem;font-weight:900;line-height:1}
 .trap-stack:empty{display:none}.trap-point{margin:0;padding:.8rem 1rem;border:0;border-left:5px solid var(--red);border-radius:0 11px 11px 0;background:var(--red-soft)}.trap-point+ .trap-point{margin-top:.55rem}.trap-point strong{display:block;color:var(--red);font-size:.84rem;margin-bottom:.2rem}
 .final-checklist{border-top:5px solid var(--navy)}.final-checklist-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}.check-card{border:1px solid var(--line);border-radius:12px;padding:.85rem;background:var(--bg)}.check-card h3{margin:0 0 .45rem;color:var(--navy);font-size:1rem}.check-card.comparison{border-top:3px solid var(--blue)}.check-card.cause{border-top:3px solid #4b9b72}.check-card.traps{border-top:3px solid var(--red)}.check-copy{display:block;min-width:0}.check-row{display:flex;align-items:flex-start;gap:.5rem}.check-row input{margin-top:.42rem;flex:0 0 auto}
-@media(max-width:900px){.roadmap-grid,.final-checklist-grid{grid-template-columns:1fr}.section-evidence{width:100%;margin-left:42px;justify-content:flex-start}.flow-section summary{flex-wrap:wrap}.roadmap{padding:1rem}.study-table-block,.mechanism-block{padding:.75rem}}
-@media print{.roadmap-card{break-inside:avoid}.study-table-scroll{overflow:visible}.study-table-block table{min-width:0}.trap-point{break-inside:avoid}.final-checklist{break-before:page}}
+@media(max-width:900px){.roadmap-grid,.final-checklist-grid{grid-template-columns:1fr}.section-evidence{width:100%;margin-left:42px;justify-content:flex-start}.flow-section summary{flex-wrap:wrap}.roadmap{padding:1rem}.study-table-block,.mechanism-block{padding:.75rem}.note-panel.core{padding:.7rem}.core-note-card{padding:.72rem}.core-note-heading h5{flex-basis:10rem}.core-panel-heading{align-items:flex-start}}
+@media print{.roadmap-card{break-inside:avoid}.study-table-scroll{overflow:visible}.study-table-block table{min-width:0}.trap-point,.core-note-card{break-inside:avoid}.final-checklist{break-before:page}}
 '''
 
     script = r'''

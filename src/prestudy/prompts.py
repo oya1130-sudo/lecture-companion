@@ -4,7 +4,8 @@ from .models import LectureRequest, SourceKind, SummaryReliability
 
 
 PROMPT_VERSION = "2026-08-31-exam-style-v1"
-SYNTHESIS_VERSION = "2026-08-31-exam-style-v1"
+CONTENT_DIGEST_VERSION = "2026-08-31-complete-content-v2"
+SYNTHESIS_VERSION = "2026-08-31-readable-core-notes-v2"
 
 
 def digest_prompt(kind: SourceKind, lecture: LectureRequest, filename: str) -> str:
@@ -19,13 +20,16 @@ def digest_prompt(kind: SourceKind, lecture: LectureRequest, filename: str) -> s
         SourceKind.LECTURE: (
             "이 파일은 이번 수업의 공식 강의자료다. 슬라이드의 실제 진행 순서, 정의, 표, 그림, 공식과 "
             "PDF 뷰어 기준 페이지를 정확히 추출하라. 족보 문제나 선배 써머리보다 현재 강의 내용과 "
-            "페이지 순서를 정하는 최우선 근거로 사용하되, 교수명과 강의 제목은 이 파일에서 추정하지 마라."
+            "페이지 순서를 정하는 최우선 근거로 사용하되, 교수명과 강의 제목은 이 파일에서 추정하지 마라. "
+            "시험에 표시된 부분만 고르지 말고, 모든 슬라이드 구간을 훑어 각 구간의 주요 정의·분류·기전·"
+            "비교·공식·임상적 의미·대표 예시를 빠짐없이 facts와 key_concepts에 보존하라."
         ),
         SourceKind.JOKCHEK: (
             "이 파일은 현재 강의자료와 과거 문제/퀴즈 표시가 합쳐진 족첵이다. "
             "현재 범위, 반복 문제, 표시된 강조점, 공식, 표, 그림과 계산 함정을 최우선으로 추출하라. "
             "각 문제에 적힌 기출 연도와 반복 연도를 questions_found 또는 exam_patterns에 빠짐없이 보존하라. "
-            "정답이 표시되어 있어도 의학적으로 모순되면 충돌 항목에 남겨라."
+            "정답이 표시되어 있어도 의학적으로 모순되면 충돌 항목에 남겨라. 족첵 속 강의자료 부분은 "
+            "시험 표시가 없는 슬라이드도 건너뛰지 말고, 구간별 주요 내용을 facts와 key_concepts에 보존하라."
         ),
         SourceKind.SUMMARY: (
             "이 파일은 과거 수강생의 써머리다. 강의 내용과 교수 변경 가능성이 있으므로 "
@@ -128,7 +132,10 @@ def synthesis_prompt(
 {flow_basis_rule}
 - lecture_flow 구간은 source_range의 시작 쪽수가 작은 순서로 정렬하고, 각 구간의 ready_notes·emphasis_signals·listen_for도 첫 근거 쪽수의 오름차순으로 정렬한다.
 - 과거 문제은행이나 현재 강의에서 제외된 부분은 본 강의 흐름에 끼워 넣지 말고 출제 신호 또는 불확실성에 구분한다.
-- 각 구간의 ready_notes는 3~5개로 제한하고, 학생이 다시 받아 적을 필요가 없도록 정의, 인과관계, 비교, 공식, 대표 예시를 완성된 1~3문장으로 적는다.
+- ready_notes를 만들기 전에 해당 source_range의 슬라이드 제목과 주요 개념을 내부적으로 대조하여, 자료에 있는 주요 내용이 각각 최소 한 개의 ready_notes 항목에 반영되었는지 확인한다.
+- 각 ready_notes 항목은 heading, kind, takeaway, details, citations로 구성한다. heading은 2~8단어의 구체적인 개념명, kind는 `정의·분류·기전·비교·공식·임상·예시` 중 가장 가까운 유형, takeaway는 한 문장 결론, details는 항목당 2~5개의 짧은 bullet로 쓴다.
+- ready_notes는 구간당 보통 3~8개를 권장하되 개수 상한 때문에 서로 다른 주요 개념을 빼거나 하나의 모호한 문장으로 합치지 않는다. 정의, 구성요소와 분류, 단계별 기전, A vs B 차이, 공식의 변수·단위·성립 조건, 그림·표 해석, 임상적 의미, 대표 예시 중 자료에 존재하는 것은 모두 포함한다.
+- details의 각 bullet에는 하나의 사실이나 연결만 담고, 긴 문단·중복·`중요하다` 같은 추상적 표현을 피한다. 표나 원인→결과 흐름으로 다시 제시하더라도 핵심 결론은 ready_notes에서 빠뜨리지 않는다.
 - 각 구간의 emphasis_signals는 1~3개 기출 포인트로 제한한다. importance는 ⭐ 1~3개에 해당하는 1~3으로 쓰고, exam_years에는 자료에서 명시적으로 확인한 연도를 넣는다. 연도를 확인할 수 없으면 정확히 `연도 확인 불가` 한 항목을 넣고 절대 추정하지 않는다.
 - 기출 중요도는 반복 연도·족첵 표시·같은 교수의 학습가이드 근거를 종합한다. 반복 또는 강한 근거는 3, 한 가지 뚜렷한 근거는 2, 단일 보조 근거는 1로 제한한다.
 - 각 구간의 listen_for는 1~2개로 제한하고 슬라이드만 읽어서는 놓치기 쉬운 그래프 해석, 개념 연결, 임상/약물 예시의 의미처럼 수업에서 설명을 들을 포인트를 적는다. 근거 없이 교수 발언을 예측하지 않는다.

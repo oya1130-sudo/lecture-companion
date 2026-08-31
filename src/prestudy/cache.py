@@ -6,8 +6,8 @@ import threading
 import uuid
 from pathlib import Path
 
-from .models import LectureRequest, SourceDigest, SourceDocument, StudyGuide
-from .prompts import PROMPT_VERSION, SYNTHESIS_VERSION
+from .models import LectureRequest, SourceDigest, SourceDocument, SourceKind, StudyGuide
+from .prompts import CONTENT_DIGEST_VERSION, PROMPT_VERSION, SYNTHESIS_VERSION
 from .storage import CACHE_ROOT
 
 
@@ -37,7 +37,12 @@ class DigestCache:
                 digest.update(chunk)
         digest.update(source.kind.value.encode("utf-8"))
         digest.update(model.encode("utf-8"))
-        digest.update(PROMPT_VERSION.encode("utf-8"))
+        prompt_version = (
+            CONTENT_DIGEST_VERSION
+            if source.kind in {SourceKind.LECTURE, SourceKind.JOKCHEK}
+            else PROMPT_VERSION
+        )
+        digest.update(prompt_version.encode("utf-8"))
         if lecture is not None:
             digest.update(lecture.model_dump_json().encode("utf-8"))
         return digest.hexdigest()

@@ -24,6 +24,9 @@ def test_lecture_material_prompt_uses_material_for_pages_but_not_title():
     assert "tables는 A vs B 비교" in synthesis
     assert "cause_effect_flows" in synthesis
     assert "final_checklist.comparisons" in synthesis
+    assert "heading, kind, takeaway, details, citations" in synthesis
+    assert "개수 상한 때문에 서로 다른 주요 개념을 빼거나" in synthesis
+    assert "그림·표 해석" in synthesis
 
 
 def test_jokchek_remains_page_basis_when_material_is_not_selected():

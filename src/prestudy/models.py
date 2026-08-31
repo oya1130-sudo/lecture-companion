@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SourceKind(str, Enum):
@@ -67,6 +67,35 @@ class CitedItem(BaseModel):
     )
 
 
+class CoreNote(BaseModel):
+    heading: str = Field(description="빠르게 찾을 수 있는 짧은 개념 소제목")
+    kind: str = Field(description="정의, 분류, 기전, 비교, 공식, 임상, 예시 중 가장 가까운 유형")
+    takeaway: str = Field(description="이 개념에서 반드시 이해할 한 문장 결론")
+    details: list[str] = Field(description="결론을 뒷받침하는 짧고 구체적인 세부 핵심")
+    citations: list[str] = Field(description="[파일명 p.쪽] 형태의 근거")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_cited_item(cls, value):
+        if isinstance(value, CitedItem):
+            return {
+                "heading": "핵심 내용",
+                "kind": "핵심",
+                "takeaway": value.content,
+                "details": [],
+                "citations": value.citations,
+            }
+        if isinstance(value, dict) and "takeaway" not in value and "content" in value:
+            return {
+                "heading": "핵심 내용",
+                "kind": "핵심",
+                "takeaway": value.get("content", ""),
+                "details": [],
+                "citations": value.get("citations", []),
+            }
+        return value
+
+
 class StudyTable(BaseModel):
     title: str
     headers: list[str] = Field(description="강의록 원문 용어를 사용한 표 머리글")
@@ -90,7 +119,7 @@ class LectureFlowSection(BaseModel):
     order: int
     source_range: str = Field(description="족첵/강의자료의 PDF 쪽 범위. 예: p.2–16")
     title: str
-    ready_notes: list[CitedItem] = Field(description="학생이 따로 필기하지 않아도 되도록 완성된 핵심 노트")
+    ready_notes: list[CoreNote] = Field(description="소제목·결론·세부 항목으로 구성된 필기 대체 핵심 노트")
     emphasis_signals: list[CitedItem] = Field(description="교수 강조 또는 출제 가능성이 근거로 확인되는 지점")
     listen_for: list[CitedItem] = Field(description="수업에서 말로 풀어줄 때 집중해서 들을 연결·해석 포인트")
     minimal_live_notes: list[str] = Field(description="PDF만으로 확정할 수 없어 수업 중 짧게 확인할 항목")
