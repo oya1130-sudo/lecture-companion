@@ -3,18 +3,47 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from prestudy.ai import CodexExecutionError, CodexStudyEngine, _strict_schema
+from prestudy.models import StudyGuide
 
 
 class MiniResult(BaseModel):
     status: str
 
 
+class DefaultedResult(BaseModel):
+    status: str
+    importance: int = 0
+    tags: list[str] = Field(default_factory=list)
+
+
 def test_strict_schema_disallows_extra_properties():
     schema = _strict_schema(MiniResult)
     assert schema["additionalProperties"] is False
+
+
+def test_strict_schema_requires_defaulted_fields_and_removes_defaults():
+    schema = _strict_schema(DefaultedResult)
+
+    assert schema["required"] == ["status", "importance", "tags"]
+    assert "default" not in schema["properties"]["importance"]
+
+
+def test_study_guide_schema_requires_every_property_recursively():
+    def assert_strict(value):
+        if isinstance(value, dict):
+            assert "default" not in value
+            if value.get("type") == "object":
+                assert value["required"] == list(value.get("properties", {}))
+            for child in value.values():
+                assert_strict(child)
+        elif isinstance(value, list):
+            for child in value:
+                assert_strict(child)
+
+    assert_strict(_strict_schema(StudyGuide))
 
 
 def test_codex_engine_uses_subscription_and_structured_output(monkeypatch, tmp_path: Path):

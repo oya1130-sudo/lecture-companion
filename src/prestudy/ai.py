@@ -67,6 +67,12 @@ def _strict_schema(model: type[BaseModel]) -> dict:
         if isinstance(value, dict):
             if value.get("type") == "object":
                 value.setdefault("additionalProperties", False)
+                properties = value.get("properties")
+                if isinstance(properties, dict):
+                    value["required"] = list(properties)
+            # Defaults are useful to Pydantic at validation time but are not
+            # part of the strict Structured Outputs schema subset.
+            value.pop("default", None)
             for child in value.values():
                 visit(child)
         elif isinstance(value, list):
