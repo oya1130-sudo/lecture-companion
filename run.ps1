@@ -152,7 +152,38 @@ catch {
     # Local use still works when Windows cannot determine the LAN address.
 }
 
+function Start-BrowserWhenReady {
+    param([Parameter(Mandatory = $true)][string]$Url)
+
+    $healthUrl = "${Url}/_stcore/health"
+    $launcherScript = @"
+`$deadline = (Get-Date).AddSeconds(60)
+while ((Get-Date) -lt `$deadline) {
+    try {
+        `$response = Invoke-WebRequest -UseBasicParsing -Uri '$healthUrl' -TimeoutSec 2
+        if (`$response.StatusCode -eq 200) {
+            Start-Process '$Url'
+            exit 0
+        }
+    }
+    catch {
+        # Streamlit may still be starting.
+    }
+    Start-Sleep -Milliseconds 500
+}
+"@
+    $encodedScript = [Convert]::ToBase64String(
+        [Text.Encoding]::Unicode.GetBytes($launcherScript)
+    )
+    Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList @('-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', $encodedScript) `
+        -WindowStyle Hidden | Out-Null
+}
+
 Write-Host "같은 Wi-Fi 기기 접속 주소: http://${lanAddress}:8501"
+$localUrl = 'http://localhost:8501'
+Write-Host "이 노트북에서 여는 주소: $localUrl"
+Start-BrowserWhenReady -Url $localUrl
 & $pythonCommand -m streamlit run (Join-Path $PSScriptRoot 'app.py') `
     --browser.gatherUsageStats false `
     --browser.serverAddress $lanAddress `
