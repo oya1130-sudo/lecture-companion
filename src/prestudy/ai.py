@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -22,6 +23,11 @@ Progress = Callable[[str], None]
 _CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "3")))
 _CODEX_SLOTS = threading.BoundedSemaphore(_CODEX_CONCURRENCY)
 _REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
+_CAPACITY_RETRIES = max(1, int(os.environ.get("PRESTUDY_CAPACITY_RETRIES", "3")))
+_CAPACITY_FALLBACK_MODEL = os.environ.get(
+    "PRESTUDY_CAPACITY_FALLBACK_MODEL",
+    "gpt-5.6-luna",
+).strip()
 
 
 def _subscription_env() -> dict[str, str]:
@@ -37,6 +43,11 @@ class FileValidationError(ValueError):
 
 class CodexExecutionError(RuntimeError):
     pass
+
+
+def _is_capacity_error(details: str) -> bool:
+    normalized = details.casefold()
+    return "selected model is at capacity" in normalized or "model is at capacity" in normalized
 
 
 def validate_pdf(path: Path) -> None:
@@ -171,7 +182,7 @@ class CodexStudyEngine:
                     "관련 페이지를 건너뛰지 말고 PDF 뷰어 기준 페이지 번호를 보존하라."
                 )
 
-            command = [
+            base_command = [
                 self.executable,
                 "exec",
                 "--ephemeral",
@@ -189,43 +200,88 @@ class CodexStudyEngine:
                 "--cd",
                 str(root),
             ]
-            if self.codex_model:
-                command.extend(["--model", self.codex_model])
-            # Read the prompt from stdin so large multi-source synthesis payloads
-            # do not exceed Windows' command-line length limit.
-            command.append("-")
+            model_candidates = [self.codex_model]
+            if (
+                _CAPACITY_FALLBACK_MODEL
+                and _CAPACITY_FALLBACK_MODEL not in model_candidates
+            ):
+                model_candidates.append(_CAPACITY_FALLBACK_MODEL)
 
-            progress(f"Codex 실행 슬롯 대기 중 (최대 {_CODEX_CONCURRENCY}개 병렬)")
-            try:
-                with _CODEX_SLOTS:
+            last_capacity_details = ""
+            for model_index, candidate_model in enumerate(model_candidates):
+                attempts = 1 if model_index < len(model_candidates) - 1 else _CAPACITY_RETRIES
+                for attempt in range(attempts):
+                    command = list(base_command)
+                    if candidate_model:
+                        command.extend(["--model", candidate_model])
+                    # Read the prompt from stdin so large multi-source synthesis
+                    # payloads do not exceed Windows' command-line length limit.
+                    command.append("-")
+                    result_path.unlink(missing_ok=True)
+
                     progress(
-                        "ChatGPT 구독 사용량으로 Codex 분석 실행 중 "
-                        f"(추론 강도: {self.reasoning_effort})"
+                        f"Codex 실행 슬롯 대기 중 (최대 {_CODEX_CONCURRENCY}개 병렬)"
                     )
-                    result = subprocess.run(
-                        command,
-                        input=prompt + file_context,
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        timeout=self.timeout_seconds,
-                        check=False,
-                        env=_subscription_env(),
-                    )
-            except subprocess.TimeoutExpired as exc:
-                raise CodexExecutionError(
-                    f"Codex 분석이 {self.timeout_seconds // 60}분 제한을 초과했습니다."
-                ) from exc
-            if result.returncode != 0:
-                details = (result.stderr or result.stdout)[-5000:]
-                raise CodexExecutionError(f"Codex 분석 실패:\n{details}")
-            if not result_path.exists():
-                raise CodexExecutionError("Codex가 구조화된 결과 파일을 만들지 않았습니다.")
-            try:
-                return output_model.model_validate_json(result_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                raise CodexExecutionError(f"Codex 결과 JSON을 읽지 못했습니다: {exc}") from exc
+                    try:
+                        with _CODEX_SLOTS:
+                            progress(
+                                "ChatGPT 구독 사용량으로 Codex 분석 실행 중 "
+                                f"(모델: {candidate_model or '기본값'}, "
+                                f"추론 강도: {self.reasoning_effort})"
+                            )
+                            result = subprocess.run(
+                                command,
+                                input=prompt + file_context,
+                                capture_output=True,
+                                text=True,
+                                encoding="utf-8",
+                                errors="replace",
+                                timeout=self.timeout_seconds,
+                                check=False,
+                                env=_subscription_env(),
+                            )
+                    except subprocess.TimeoutExpired as exc:
+                        raise CodexExecutionError(
+                            f"Codex 분석이 {self.timeout_seconds // 60}분 제한을 초과했습니다."
+                        ) from exc
+
+                    if result.returncode == 0:
+                        if not result_path.exists():
+                            raise CodexExecutionError(
+                                "Codex가 구조화된 결과 파일을 만들지 않았습니다."
+                            )
+                        try:
+                            return output_model.model_validate_json(
+                                result_path.read_text(encoding="utf-8")
+                            )
+                        except Exception as exc:
+                            raise CodexExecutionError(
+                                f"Codex 결과 JSON을 읽지 못했습니다: {exc}"
+                            ) from exc
+
+                    details = (result.stderr or result.stdout)[-5000:]
+                    if not _is_capacity_error(details):
+                        raise CodexExecutionError(f"Codex 분석 실패:\n{details}")
+                    last_capacity_details = details
+
+                    if model_index < len(model_candidates) - 1:
+                        progress(
+                            f"현재 모델이 혼잡하여 {_CAPACITY_FALLBACK_MODEL}로 자동 전환"
+                        )
+                        break
+                    if attempt < attempts - 1:
+                        delay = 3 * (attempt + 1)
+                        progress(
+                            "대체 모델도 혼잡합니다. "
+                            f"{delay}초 후 자동 재시도 ({attempt + 2}/{attempts})"
+                        )
+                        time.sleep(delay)
+
+            raise CodexExecutionError(
+                "Codex 모델이 현재 혼잡합니다. 기본 모델과 대체 모델로 "
+                f"자동 재시도했지만 연결되지 않았습니다. 잠시 후 다시 시도해 주세요.\n"
+                f"{last_capacity_details[-500:]}"
+            )
 
     def analyze_source(
         self,

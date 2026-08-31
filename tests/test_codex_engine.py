@@ -68,6 +68,38 @@ def test_codex_engine_accepts_reasoning_effort_override(monkeypatch, tmp_path: P
     assert engine.reasoning_effort == "medium"
 
 
+def test_codex_engine_falls_back_when_default_model_is_at_capacity(
+    monkeypatch,
+    tmp_path: Path,
+):
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command[1:3] == ["login", "status"]:
+            return SimpleNamespace(returncode=0, stdout="Logged in using ChatGPT\n", stderr="")
+        if "--model" not in command:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="ERROR: Selected model is at capacity. Please try a different model.",
+            )
+        output_index = command.index("--output-last-message") + 1
+        Path(command[output_index]).write_text(json.dumps({"status": "ok"}), encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("prestudy.ai.shutil.which", lambda _: "codex")
+    monkeypatch.setattr("prestudy.ai.subprocess.run", fake_run)
+    engine = CodexStudyEngine(work_root=tmp_path)
+
+    result = engine._run_structured("return ok", MiniResult)
+
+    assert result.status == "ok"
+    fallback_command = commands[-1]
+    model_index = fallback_command.index("--model") + 1
+    assert fallback_command[model_index] == "gpt-5.6-luna"
+
+
 def test_codex_engine_rejects_api_key_login(monkeypatch, tmp_path: Path):
     def fake_run(command, **kwargs):
         return SimpleNamespace(returncode=0, stdout="Logged in using API key\n", stderr="")

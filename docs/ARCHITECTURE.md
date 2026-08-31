@@ -63,6 +63,8 @@ Streamlit UI
 
 기본 생성 모드는 `low` 추론 강도의 빠른 생성이며, 고급 설정에서 균형(`medium`) 또는 정밀 생성(`high`)으로 바꿀 수 있습니다. 환경변수 `PRESTUDY_JOB_WORKERS`, `PRESTUDY_SOURCE_WORKERS`, `PRESTUDY_CODEX_CONCURRENCY`, `PRESTUDY_REASONING_EFFORT`로 조절합니다. 같은 자료·강의 조건·모델은 캐시를 사용합니다.
 
+선택한 Codex 모델이 일시적으로 수용량 한도에 걸리면 해당 분석만 `gpt-5.6-luna`로 자동 전환하고, 대체 모델도 혼잡하면 짧은 간격으로 재시도합니다. 대체 모델과 재시도 횟수는 `PRESTUDY_CAPACITY_FALLBACK_MODEL`, `PRESTUDY_CAPACITY_RETRIES`로 변경할 수 있습니다.
+
 별도 강의자료가 선택되면 합성 단계와 HTML 렌더링 단계 모두 강의자료 인용만 페이지 기준으로 사용합니다. 교수명·수업 제목과 시험 출제 신호는 족첵이 기준이며, 강의자료가 없을 때는 족첵이 내용과 페이지 기준을 함께 담당합니다.
 
 완성 HTML은 강의 로드맵, 페이지 순서형 파트, 기출 중요도·연도, 비교표, 원인→결과 흐름도, 함정 블록과 최종 체크리스트를 구조화해 렌더링합니다. 짤족·탈족 분류는 학습가이드에 해당 교수의 직접 근거가 있을 때만 생성합니다.
