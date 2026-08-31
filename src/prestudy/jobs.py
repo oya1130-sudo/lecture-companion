@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -16,6 +17,18 @@ from .ai import CodexStudyEngine
 from .models import LectureRequest, SourceDocument
 from .service import StudyGuideService
 from .storage import COURSE_DRIVE_FOLDERS, DRIVE_OUTPUT_ROOT
+
+
+_STATE_LOCKS_GUARD = threading.Lock()
+_STATE_LOCKS: dict[str, threading.RLock] = {}
+
+
+def _shared_state_lock(path: Path | None) -> threading.RLock:
+    if path is None:
+        return threading.RLock()
+    key = str(path.resolve()).casefold()
+    with _STATE_LOCKS_GUARD:
+        return _STATE_LOCKS.setdefault(key, threading.RLock())
 
 
 @dataclass(frozen=True)
@@ -103,11 +116,12 @@ class JobManager:
         self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lecture-job")
         self.jobs: dict[str, _Job] = {}
         self.lock = threading.RLock()
-        self.state_lock = threading.RLock()
         self.drive_lock = threading.RLock()
         self.max_workers = workers
         self.drive_output_root = Path(drive_output_root) if drive_output_root is not None else None
         self.state_path = Path(state_path) if state_path is not None else None
+        self.state_lock = _shared_state_lock(self.state_path)
+        self.state_error = ""
         self.history_output_root = Path(history_output_root) if history_output_root is not None else None
         self._load_state()
         self._backfill_history()
@@ -142,15 +156,53 @@ class JobManager:
             with self.lock:
                 jobs = list(self.jobs.values())
             snapshots = [job.snapshot() for job in jobs]
+            serialized = [self._serialize(item) for item in snapshots]
+            merged_jobs: dict[str, dict] = {}
+            if self.state_path.is_file():
+                try:
+                    existing = json.loads(self.state_path.read_text(encoding="utf-8"))
+                    merged_jobs = {
+                        str(item["job_id"]): item
+                        for item in existing.get("jobs", [])
+                        if isinstance(item, dict) and item.get("job_id")
+                    }
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    merged_jobs = {}
+            merged_jobs.update({str(item["job_id"]): item for item in serialized})
             payload = json.dumps(
-                {"version": 2, "jobs": [self._serialize(item) for item in snapshots]},
+                {"version": 2, "jobs": list(merged_jobs.values())},
                 ensure_ascii=False,
                 indent=2,
             )
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.state_path.with_suffix(f"{self.state_path.suffix}.tmp")
-            temporary.write_text(payload, encoding="utf-8")
-            temporary.replace(self.state_path)
+            temporary = self.state_path.with_name(
+                f".{self.state_path.name}.{uuid.uuid4().hex}.tmp"
+            )
+            try:
+                temporary.write_text(payload, encoding="utf-8")
+                last_error: OSError | None = None
+                for attempt in range(8):
+                    try:
+                        os.replace(temporary, self.state_path)
+                        self.state_error = ""
+                        return
+                    except PermissionError as exc:
+                        last_error = exc
+                        time.sleep(0.05 * (attempt + 1))
+                self.state_error = (
+                    "작업 이력을 잠시 저장하지 못했습니다. 생성 작업은 계속되며 "
+                    f"다음 상태 변경 때 다시 시도합니다: {last_error}"
+                )
+            except OSError as exc:
+                self.state_error = (
+                    "작업 이력을 잠시 저장하지 못했습니다. 생성 작업은 계속되며 "
+                    f"다음 상태 변경 때 다시 시도합니다: {exc}"
+                )
+            finally:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _load_state(self) -> None:
         if self.state_path is None or not self.state_path.is_file():

@@ -45,7 +45,7 @@ SPEED_PROFILES = {
 
 
 @st.cache_resource
-def _job_manager(config_version: str = "persistent-history-v3") -> JobManager:
+def _job_manager(config_version: str = "persistent-history-v4") -> JobManager:
     # Bump config_version when shared worker construction changes so a hot
     # reload cannot keep an older JobManager instance alive.
     return JobManager(state_path=JOB_STATE_PATH, history_output_root=OUTPUT_ROOT)
@@ -305,6 +305,8 @@ def _render_job_queue() -> None:
         f"진행 중 {len(active)}개 · 이전 작업 {len(history)}개 · "
         f"최대 {manager.max_workers}개 병렬 처리 · Codex 동시 호출 {CODEX_CONCURRENCY}개"
     )
+    if manager.state_error:
+        st.warning(manager.state_error)
 
     st.markdown("#### 진행 중인 작업")
     if active:

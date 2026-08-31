@@ -117,6 +117,44 @@ def test_job_history_survives_manager_restart(tmp_path: Path, monkeypatch):
     assert state_path.is_file()
 
 
+def test_job_history_retries_a_transient_windows_file_lock(tmp_path: Path, monkeypatch):
+    state_path = tmp_path / "jobs.json"
+    manager = JobManager(max_workers=1, drive_output_root=None, state_path=state_path)
+    real_replace = jobs_module.os.replace
+    attempts = 0
+
+    def flaky_replace(source, destination):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError(5, "Access is denied")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(jobs_module.os, "replace", flaky_replace)
+    manager._save_state()
+    manager.executor.shutdown(wait=True)
+
+    assert attempts == 3
+    assert manager.state_error == ""
+    assert json.loads(state_path.read_text(encoding="utf-8"))["version"] == 2
+    assert not list(tmp_path.glob(".jobs.json.*.tmp"))
+
+
+def test_job_history_save_failure_does_not_fail_the_app(tmp_path: Path, monkeypatch):
+    state_path = tmp_path / "jobs.json"
+    manager = JobManager(max_workers=1, drive_output_root=None, state_path=state_path)
+
+    def blocked_replace(source, destination):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(jobs_module.os, "replace", blocked_replace)
+    manager._save_state()
+    manager.executor.shutdown(wait=True)
+
+    assert "생성 작업은 계속" in manager.state_error
+    assert not list(tmp_path.glob(".jobs.json.*.tmp"))
+
+
 def test_existing_output_and_drive_files_are_added_to_history(tmp_path: Path):
     output_root = tmp_path / "output"
     drive_root = tmp_path / "drive"
