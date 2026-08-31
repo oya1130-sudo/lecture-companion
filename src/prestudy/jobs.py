@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -17,10 +18,21 @@ from .service import StudyGuideService
 from .storage import COURSE_DRIVE_FOLDERS, DRIVE_OUTPUT_ROOT
 
 
+@dataclass(frozen=True)
+class JobSource:
+    kind: str
+    filename: str
+
+
 @dataclass
 class JobSnapshot:
     job_id: str
     label: str
+    course: str
+    professor: str
+    topic: str
+    lecture_date: str
+    source_files: list[JobSource]
     status: str
     messages: list[str]
     output_path: Path
@@ -36,6 +48,11 @@ class _Job:
     job_id: str
     label: str
     output_path: Path
+    course: str = ""
+    professor: str = ""
+    topic: str = ""
+    lecture_date: str = ""
+    source_files: list[JobSource] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     finished_at: datetime | None = None
     status: str = "queued"
@@ -58,6 +75,11 @@ class _Job:
             return JobSnapshot(
                 job_id=self.job_id,
                 label=self.label,
+                course=self.course,
+                professor=self.professor,
+                topic=self.topic,
+                lecture_date=self.lecture_date,
+                source_files=list(self.source_files),
                 status=self.status,
                 messages=list(self.messages),
                 output_path=self.output_path,
@@ -75,22 +97,34 @@ class JobManager:
         max_workers: int | None = None,
         drive_output_root: Path | str | None = DRIVE_OUTPUT_ROOT,
         state_path: Path | str | None = None,
+        history_output_root: Path | str | None = None,
     ) -> None:
         workers = max(1, max_workers or int(os.environ.get("PRESTUDY_JOB_WORKERS", "3")))
         self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lecture-job")
         self.jobs: dict[str, _Job] = {}
         self.lock = threading.RLock()
+        self.state_lock = threading.RLock()
         self.drive_lock = threading.RLock()
         self.max_workers = workers
         self.drive_output_root = Path(drive_output_root) if drive_output_root is not None else None
         self.state_path = Path(state_path) if state_path is not None else None
+        self.history_output_root = Path(history_output_root) if history_output_root is not None else None
         self._load_state()
+        self._backfill_history()
 
     @staticmethod
     def _serialize(snapshot: JobSnapshot) -> dict:
         return {
             "job_id": snapshot.job_id,
             "label": snapshot.label,
+            "course": snapshot.course,
+            "professor": snapshot.professor,
+            "topic": snapshot.topic,
+            "lecture_date": snapshot.lecture_date,
+            "source_files": [
+                {"kind": source.kind, "filename": source.filename}
+                for source in snapshot.source_files
+            ],
             "status": snapshot.status,
             "messages": snapshot.messages,
             "output_path": str(snapshot.output_path),
@@ -104,10 +138,12 @@ class JobManager:
     def _save_state(self) -> None:
         if self.state_path is None:
             return
-        with self.lock:
-            snapshots = [job.snapshot() for job in self.jobs.values()]
+        with self.state_lock:
+            with self.lock:
+                jobs = list(self.jobs.values())
+            snapshots = [job.snapshot() for job in jobs]
             payload = json.dumps(
-                {"version": 1, "jobs": [self._serialize(item) for item in snapshots]},
+                {"version": 2, "jobs": [self._serialize(item) for item in snapshots]},
                 ensure_ascii=False,
                 indent=2,
             )
@@ -135,9 +171,22 @@ class JobManager:
                     error = "서버가 재시작되어 작업이 중단되었습니다. 다시 제출해 주세요."
                     messages.append(error)
                     finished_at = datetime.now()
+                source_files = [
+                    JobSource(
+                        kind=str(value.get("kind", "자료")),
+                        filename=str(value.get("filename", "")),
+                    )
+                    for value in item.get("source_files", [])
+                    if isinstance(value, dict) and value.get("filename")
+                ]
                 job = _Job(
                     job_id=str(item["job_id"]),
                     label=str(item["label"]),
+                    course=str(item.get("course", "")),
+                    professor=str(item.get("professor", "")),
+                    topic=str(item.get("topic", "")),
+                    lecture_date=str(item.get("lecture_date", "")),
+                    source_files=source_files,
                     status=status,
                     messages=messages,
                     output_path=Path(item["output_path"]),
@@ -155,6 +204,81 @@ class JobManager:
             return
         self._save_state()
 
+    @staticmethod
+    def _history_label(path: Path) -> str:
+        label = path.stem
+        for suffix in (" 수업동반노트", "_수업동반노트"):
+            if label.endswith(suffix):
+                label = label[: -len(suffix)]
+                break
+        return label.replace("_", " ").strip() or path.name
+
+    @staticmethod
+    def _history_course(path: Path) -> str:
+        parent_names = {parent.name for parent in path.parents}
+        for course, folder in COURSE_DRIVE_FOLDERS.items():
+            if course in path.name or folder in parent_names:
+                return course
+        return ""
+
+    @staticmethod
+    def _html_files(root: Path | None, recursive: bool = False) -> list[Path]:
+        if root is None or not root.is_dir():
+            return []
+        try:
+            candidates = root.rglob("*.html") if recursive else root.glob("*.html")
+            return [path for path in candidates if path.is_file()]
+        except OSError:
+            return []
+
+    def _history_job(self, path: Path, drive_path: Path | None = None) -> _Job:
+        modified_at = datetime.fromtimestamp(path.stat().st_mtime)
+        identifier = hashlib.sha1(str(path.resolve()).casefold().encode("utf-8")).hexdigest()[:12]
+        return _Job(
+            job_id=f"history-{identifier}",
+            label=self._history_label(path),
+            course=self._history_course(path),
+            topic=self._history_label(path),
+            status="complete",
+            messages=["기존 완성 HTML에서 불러온 작업 내역"],
+            output_path=path,
+            drive_path=drive_path,
+            created_at=modified_at,
+            finished_at=modified_at,
+            on_change=self._save_state,
+        )
+
+    def _backfill_history(self) -> None:
+        local_files = self._html_files(self.history_output_root)
+        drive_files = self._html_files(self.drive_output_root, recursive=True)
+        changed = False
+
+        with self.lock:
+            jobs_by_filename = {job.output_path.name: job for job in self.jobs.values()}
+            for path in sorted(local_files, key=lambda item: item.stat().st_mtime):
+                if path.name in jobs_by_filename:
+                    continue
+                job = self._history_job(path)
+                self.jobs[job.job_id] = job
+                jobs_by_filename[path.name] = job
+                changed = True
+
+            for path in sorted(drive_files, key=lambda item: item.stat().st_mtime):
+                existing = jobs_by_filename.get(path.name)
+                if existing is not None:
+                    with existing.lock:
+                        if existing.drive_path is None:
+                            existing.drive_path = path
+                            changed = True
+                    continue
+                job = self._history_job(path, drive_path=path)
+                self.jobs[job.job_id] = job
+                jobs_by_filename[path.name] = job
+                changed = True
+
+        if changed:
+            self._save_state()
+
     def new_id(self) -> str:
         return uuid.uuid4().hex[:12]
 
@@ -169,6 +293,14 @@ class JobManager:
         job = _Job(
             job_id=job_id,
             label=f"{lecture.course} · {lecture.topic}",
+            course=lecture.course,
+            professor=lecture.professor,
+            topic=lecture.topic,
+            lecture_date=lecture.lecture_date,
+            source_files=[
+                JobSource(kind=source.kind.value, filename=source.path.name)
+                for source in sources
+            ],
             output_path=output_path,
             on_change=self._save_state,
         )

@@ -10,7 +10,7 @@ import streamlit as st
 import yaml
 
 from .ai import CodexStudyEngine
-from .jobs import JobManager
+from .jobs import JobManager, JobSnapshot
 from .models import LectureRequest, SourceDocument, SourceKind, SummaryReliability
 from .storage import (
     COURSE_DRIVE_FOLDERS,
@@ -37,10 +37,10 @@ CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "2")
 
 
 @st.cache_resource
-def _job_manager(config_version: str = "persistent-jobs-v1") -> JobManager:
+def _job_manager(config_version: str = "persistent-history-v2") -> JobManager:
     # Bump config_version when shared worker construction changes so a hot
     # reload cannot keep an older JobManager instance alive.
-    return JobManager(state_path=JOB_STATE_PATH)
+    return JobManager(state_path=JOB_STATE_PATH, history_output_root=OUTPUT_ROOT)
 
 
 @st.cache_data(ttl="5m", max_entries=4, show_spinner=False)
@@ -203,62 +203,104 @@ def _configured_guides() -> tuple[list[Path], Path]:
     return [], USER_GUIDES_CONFIG
 
 
+def _render_job_card(snapshot: JobSnapshot) -> None:
+    with st.container(border=True):
+        header = st.container(horizontal=True, vertical_alignment="center")
+        with header:
+            st.markdown(f"**{snapshot.label}**")
+            if snapshot.status == "queued":
+                st.badge("대기", color="gray")
+            elif snapshot.status == "running":
+                st.badge("생성 중", color="blue")
+            elif snapshot.status == "complete":
+                st.badge("완료", color="green")
+            else:
+                st.badge("실패", color="red")
+
+        details = [snapshot.created_at.strftime("등록 %Y-%m-%d %H:%M")]
+        if snapshot.professor:
+            details.append(snapshot.professor)
+        if snapshot.lecture_date:
+            details.append(f"강의일 {snapshot.lecture_date}")
+        if snapshot.finished_at is not None:
+            details.append(snapshot.finished_at.strftime("완료 %m-%d %H:%M"))
+        st.caption(" · ".join(details))
+
+        if snapshot.status == "running":
+            st.status(
+                snapshot.messages[-1] if snapshot.messages else "작업 시작 중",
+                state="running",
+                expanded=False,
+                type="compact",
+            )
+        elif snapshot.status == "queued":
+            st.caption("실행 슬롯을 기다리고 있습니다.")
+        elif snapshot.status == "failed":
+            st.error(snapshot.error or "작업이 실패했습니다.")
+        elif snapshot.output_path.is_file():
+            if snapshot.drive_path is not None:
+                st.success(f"Google Drive 저장 완료 · {snapshot.drive_path}")
+            elif snapshot.drive_error:
+                st.warning(
+                    f"Google Drive 저장 실패 · {snapshot.drive_error}\n\n"
+                    "로컬 HTML은 정상적으로 완성됐습니다."
+                )
+            output_path = snapshot.output_path
+            st.download_button(
+                "HTML 다운로드",
+                data=lambda path=output_path: path.read_bytes(),
+                file_name=output_path.name,
+                mime="text/html",
+                key=f"download-{snapshot.job_id}",
+                width="stretch",
+                on_click="ignore",
+                icon=":material/download:",
+            )
+        elif snapshot.status == "complete":
+            st.warning("완성 HTML 파일을 찾지 못했습니다.")
+
+        if snapshot.source_files:
+            with st.expander(f"사용한 자료 · {len(snapshot.source_files)}개"):
+                grouped_sources: dict[str, list[str]] = {}
+                for source in snapshot.source_files:
+                    grouped_sources.setdefault(source.kind, []).append(source.filename)
+                for kind, filenames in grouped_sources.items():
+                    st.markdown(f"**{kind}**")
+                    for filename in filenames:
+                        st.caption(f"• {filename}")
+
+        if snapshot.messages:
+            with st.expander("진행 기록"):
+                st.code("\n".join(snapshot.messages[-12:]), language=None)
+
+
 @st.fragment(run_every="2s")
 def _render_job_queue() -> None:
     manager = _job_manager()
     snapshots = manager.snapshots()
+    active = [snapshot for snapshot in snapshots if snapshot.status in {"queued", "running"}]
+    history = [snapshot for snapshot in snapshots if snapshot.status not in {"queued", "running"}]
+
     st.subheader("작업 큐")
     st.caption(
-        f"최대 {manager.max_workers}개 작업을 처리하고, "
-        f"Codex 호출은 전체에서 최대 {CODEX_CONCURRENCY}개씩 실행합니다."
+        f"진행 중 {len(active)}개 · 이전 작업 {len(history)}개 · "
+        f"최대 {manager.max_workers}개 병렬 처리 · Codex 동시 호출 {CODEX_CONCURRENCY}개"
     )
-    if not snapshots:
-        st.info("아직 제출한 작업이 없습니다. 첫 강의 파일을 넣어 주세요.")
-        return
 
-    for snapshot in snapshots:
-        with st.container(border=True):
-            header = st.container(horizontal=True, vertical_alignment="center")
-            with header:
-                st.markdown(f"**{snapshot.label}**")
-                if snapshot.status == "queued":
-                    st.badge("대기", color="gray")
-                elif snapshot.status == "running":
-                    st.badge("생성 중", color="blue")
-                elif snapshot.status == "complete":
-                    st.badge("완료", color="green")
-                else:
-                    st.badge("실패", color="red")
+    st.markdown("#### 진행 중인 작업")
+    if active:
+        for snapshot in active:
+            _render_job_card(snapshot)
+    else:
+        st.info("현재 진행 중인 작업이 없습니다.")
 
-            if snapshot.status == "running":
-                st.status(
-                    snapshot.messages[-1] if snapshot.messages else "작업 시작 중",
-                    state="running",
-                    expanded=False,
-                    type="compact",
-                )
-            elif snapshot.status == "queued":
-                st.caption("실행 슬롯을 기다리고 있습니다.")
-            elif snapshot.status == "failed":
-                st.error(snapshot.error or "작업이 실패했습니다.")
-            elif snapshot.output_path.is_file():
-                if snapshot.drive_path is not None:
-                    st.success(f"Google Drive 저장 완료 · {snapshot.drive_path}")
-                elif snapshot.drive_error:
-                    st.warning(f"Google Drive 저장 실패 · {snapshot.drive_error}\n\n로컬 HTML은 정상적으로 완성됐습니다.")
-                st.download_button(
-                    "HTML 다운로드",
-                    data=snapshot.output_path.read_bytes(),
-                    file_name=snapshot.output_path.name,
-                    mime="text/html",
-                    key=f"download-{snapshot.job_id}",
-                    width="stretch",
-                    on_click="ignore",
-                )
-
-            if snapshot.messages:
-                with st.expander("진행 기록"):
-                    st.code("\n".join(snapshot.messages[-12:]), language=None)
+    st.markdown(f"#### 이전 작업 내역 · {len(history)}개")
+    st.caption("앱을 재시작해도 보존되며, 기존 output과 Google Drive의 HTML도 자동으로 불러옵니다.")
+    if history:
+        for snapshot in history:
+            _render_job_card(snapshot)
+    else:
+        st.info("아직 완료되거나 실패한 작업이 없습니다.")
 
 
 def run() -> None:

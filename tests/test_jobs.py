@@ -7,7 +7,7 @@ from pathlib import Path
 
 import prestudy.jobs as jobs_module
 from prestudy.jobs import JobManager
-from prestudy.models import LectureRequest
+from prestudy.models import LectureRequest, SourceDocument, SourceKind
 
 
 class FakeEngine:
@@ -93,8 +93,11 @@ def test_job_history_survives_manager_restart(tmp_path: Path, monkeypatch):
     manager = JobManager(max_workers=1, drive_output_root=None, state_path=state_path)
     lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
     output_path = tmp_path / "persisted.html"
+    source_path = tmp_path / "족첵.pdf"
+    source_path.write_bytes(b"%PDF-test")
+    sources = [SourceDocument(path=source_path, kind=SourceKind.JOKCHEK)]
 
-    manager.submit("job-persisted", lecture, [], output_path)
+    manager.submit("job-persisted", lecture, sources, output_path)
     deadline = time.monotonic() + 2
     snapshot = manager.snapshots()[0]
     while time.monotonic() < deadline and snapshot.status != "complete":
@@ -108,7 +111,41 @@ def test_job_history_survives_manager_restart(tmp_path: Path, monkeypatch):
 
     assert restored_snapshot.status == "complete"
     assert restored_snapshot.output_path == output_path
+    assert restored_snapshot.professor == "김자은"
+    assert restored_snapshot.source_files[0].filename == "족첵.pdf"
     assert state_path.is_file()
+
+
+def test_existing_output_and_drive_files_are_added_to_history(tmp_path: Path):
+    output_root = tmp_path / "output"
+    drive_root = tmp_path / "drive"
+    drive_course_root = drive_root / "02. 약리학"
+    output_root.mkdir()
+    drive_course_root.mkdir(parents=True)
+    filename = "0831 약리학 김자은 약동학 수업동반노트.html"
+    local_output = output_root / filename
+    drive_output = drive_course_root / filename
+    drive_only = drive_course_root / "0830 약리학 김자은 약물대사 수업동반노트.html"
+    local_output.write_text("<html>local</html>", encoding="utf-8")
+    drive_output.write_text("<html>drive</html>", encoding="utf-8")
+    drive_only.write_text("<html>drive only</html>", encoding="utf-8")
+
+    manager = JobManager(
+        max_workers=1,
+        drive_output_root=drive_root,
+        state_path=tmp_path / "jobs.json",
+        history_output_root=output_root,
+    )
+    snapshots = manager.snapshots()
+    manager.executor.shutdown(wait=True)
+
+    assert len(snapshots) == 2
+    local_snapshot = next(item for item in snapshots if item.output_path == local_output)
+    drive_snapshot = next(item for item in snapshots if item.output_path == drive_only)
+    assert local_snapshot.status == "complete"
+    assert local_snapshot.course == "약리학"
+    assert local_snapshot.drive_path == drive_output
+    assert drive_snapshot.drive_path == drive_only
 
 
 def test_running_job_is_marked_failed_after_restart(tmp_path: Path):

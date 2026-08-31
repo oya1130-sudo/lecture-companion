@@ -19,7 +19,15 @@ def test_running_job_does_not_use_invalid_indeterminate_progress_value():
     source = inspect.getsource(web._render_job_queue)
 
     assert "st.progress(None" not in source
+    assert "이전 작업 내역" in source
+
+
+def test_job_card_uses_status_and_deferred_download():
+    source = inspect.getsource(web._render_job_card)
+
     assert "st.status(" in source
+    assert "data=lambda" in source
+    assert "사용한 자료" in source
 
 
 def test_output_filename_uses_mmdd_and_readable_spaces():
