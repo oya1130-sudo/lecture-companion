@@ -11,6 +11,7 @@ import yaml
 
 from .ai import CodexStudyEngine
 from .jobs import JobManager, JobSnapshot
+from .metadata import JokchekMetadataError, LectureMetadata, infer_jokchek_metadata
 from .models import LectureRequest, SourceDocument, SourceKind, SummaryReliability
 from .storage import (
     COURSE_DRIVE_FOLDERS,
@@ -155,6 +156,14 @@ def _upload_summary(label: str, files) -> None:
     names = ", ".join(file.name for file in files)
     st.success(f"{label} {len(files)}개 업로드 완료 · {total_mb:.1f}MB")
     st.caption(names)
+
+
+def _selected_filenames(values) -> list[str]:
+    filenames = []
+    for value in values or []:
+        raw_name = value if isinstance(value, str) else value.name
+        filenames.append(Path(raw_name).name)
+    return filenames
 
 
 def _persist_guides(
@@ -462,21 +471,49 @@ def run() -> None:
             )
             _upload_summary("선배 써머리", summary_uploads)
 
+    selected_jokchek = (
+        drive_jokchek_values
+        if source_mode == "Google Drive에서 선택"
+        else jokchek_uploads
+    )
+    detected_metadata: LectureMetadata | None = None
+    metadata_error = ""
+    if selected_jokchek:
+        try:
+            detected_metadata = infer_jokchek_metadata(
+                _selected_filenames(selected_jokchek),
+                expected_course=course or "",
+            )
+        except JokchekMetadataError as exc:
+            metadata_error = str(exc)
+
+    with st.container(border=True):
+        st.markdown("**족첵 기준 자동 인식**")
+        if detected_metadata is not None:
+            professor_column, topic_column = st.columns([1, 2])
+            professor_column.caption("교수명")
+            professor_column.write(detected_metadata.professor)
+            topic_column.caption("수업 제목")
+            topic_column.write(detected_metadata.topic)
+            st.caption("선배 써머리와 학습가이드의 교수명·제목은 자동 인식에 사용하지 않습니다.")
+        elif metadata_error:
+            st.warning(metadata_error)
+        else:
+            st.caption("족첵 PDF를 선택하면 교수명과 수업 제목을 자동으로 표시합니다.")
+
     with st.form("lecture-job-form", clear_on_submit=True):
-        col1, col2 = st.columns([1, 1.6])
-        professor = col1.text_input("교수", placeholder="예: 김자은")
-        topic = col2.text_input("강의 주제", placeholder="예: Pharmacokinetics 2 & metabolism")
         col4, col5 = st.columns(2)
         lecture_date = col4.date_input("강의일")
         reliability_label = col5.selectbox("선배 써머리 일치도", list(RELIABILITY_LABELS))
         submitted = st.form_submit_button("작업 큐에 추가", type="primary", width="stretch")
 
     if submitted:
-        selected_jokchek = drive_jokchek_values if source_mode == "Google Drive에서 선택" else jokchek_uploads
         if not selected_jokchek:
             st.error("족첵 PDF를 한 개 이상 선택해 주세요.")
-        elif not course or not professor.strip() or not topic.strip():
-            st.error("과목, 교수, 강의 주제를 입력해 주세요.")
+        elif not course:
+            st.error("과목을 선택해 주세요.")
+        elif detected_metadata is None:
+            st.error(metadata_error or "족첵에서 교수명과 수업 제목을 확인하지 못했습니다.")
         elif not guide_paths and not replacement_guides:
             st.error("기본 학습가이드가 없습니다. 교체 영역에 학습가이드 PDF를 넣어 주세요.")
         else:
@@ -495,15 +532,20 @@ def run() -> None:
                 summary_paths = _save_uploads(summary_uploads, job_root / "summaries")
             lecture = LectureRequest(
                 course=course,
-                professor=professor.strip(),
-                topic=topic.strip(),
+                professor=detected_metadata.professor,
+                topic=detected_metadata.topic,
                 lecture_date=str(lecture_date),
                 summary_reliability=RELIABILITY_LABELS[reliability_label],
             )
             sources = [SourceDocument(path=path, kind=SourceKind.GUIDE) for path in selected_guides]
             sources.extend(SourceDocument(path=path, kind=SourceKind.JOKCHEK) for path in jokchek_paths)
             sources.extend(SourceDocument(path=path, kind=SourceKind.SUMMARY) for path in summary_paths)
-            filename = _output_filename(lecture_date, course, professor, topic)
+            filename = _output_filename(
+                lecture_date,
+                course,
+                detected_metadata.professor,
+                detected_metadata.topic,
+            )
             OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
             output_path = _available_output_path(filename, manager)
             snapshot = manager.submit(job_id, lecture, sources, output_path, model=model)

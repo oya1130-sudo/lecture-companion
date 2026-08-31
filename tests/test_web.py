@@ -41,6 +41,15 @@ def test_output_filename_uses_mmdd_and_readable_spaces():
     assert filename == "0831 예방의학 오창모 질병 및 사망, 건강수준의 측정 수업동반노트.html"
 
 
+def test_web_uses_jokchek_metadata_without_manual_professor_or_topic_fields():
+    source = inspect.getsource(web.run)
+
+    assert 'text_input("교수"' not in source
+    assert 'text_input("강의 주제"' not in source
+    assert "infer_jokchek_metadata" in source
+    assert "선배 써머리와 학습가이드의 교수명·제목은 자동 인식에 사용하지 않습니다." in source
+
+
 def test_drive_pdf_options_only_scan_selected_course(tmp_path: Path):
     pharmacology = tmp_path / "2. 약리학" / "week1"
     pathology = tmp_path / "1. 병리학"
