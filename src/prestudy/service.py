@@ -8,7 +8,8 @@ from typing import Callable
 from .ai import CodexStudyEngine
 from .cache import DigestCache, GuideCache
 from .html_renderer import render_study_guide_html
-from .models import LectureRequest, SourceDigest, SourceDocument, SourceKind, StudyGuide
+from .models import LectureRequest, SourceDigest, SourceDocument, StudyGuide
+from .naming import companion_title
 from .page_basis import align_lecture_flow_to_material
 from .pdf_renderer import render_study_guide
 
@@ -38,8 +39,12 @@ class StudyGuideService:
         lecture: LectureRequest,
         sources: list[SourceDocument],
     ) -> StudyGuide:
-        if any(source.kind == SourceKind.LECTURE for source in sources):
-            guide.title = f"{lecture.topic} 수업 동반 노트"
+        guide.title = companion_title(
+            lecture.lecture_date,
+            lecture.course,
+            lecture.professor,
+            lecture.topic,
+        )
         return align_lecture_flow_to_material(guide, sources)
 
     def _render(

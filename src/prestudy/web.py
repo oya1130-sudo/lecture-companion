@@ -13,6 +13,7 @@ from .ai import CodexStudyEngine
 from .jobs import JobManager, JobSnapshot
 from .metadata import JokchekMetadataError, LectureMetadata, infer_jokchek_metadata
 from .models import LectureRequest, SourceDocument, SourceKind, SummaryReliability
+from .naming import companion_title
 from .storage import (
     COURSE_DRIVE_FOLDERS,
     DRIVE_OUTPUT_ROOT,
@@ -88,10 +89,13 @@ def _safe_name(value: str) -> str:
 
 
 def _output_filename(lecture_date: date, course: str, professor: str, topic: str) -> str:
-    return (
-        f"{lecture_date:%m%d} {_safe_name(course)} {_safe_name(professor)} "
-        f"{_safe_name(topic)} 수업동반노트.html"
+    title = companion_title(
+        lecture_date,
+        _safe_name(course),
+        _safe_name(professor),
+        _safe_name(topic),
     )
+    return f"{title} 수업동반노트.html"
 
 
 def _available_output_path(filename: str, manager: JobManager) -> Path:

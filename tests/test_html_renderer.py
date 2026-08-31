@@ -133,7 +133,12 @@ def test_html_displays_only_lecture_material_pages_when_selected(tmp_path: Path)
 
 def test_html_uses_exam_focused_companion_note_layout(tmp_path: Path):
     output = tmp_path / "새스타일.html"
-    lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
+    lecture = LectureRequest(
+        course="병리학",
+        professor="이소민",
+        topic="Hemodynamic Disorders(2)",
+        lecture_date="2026-08-31",
+    )
     guide = _guide()
     exam_point = CitedItem(
         content="반감기 계산은 반복 출제됨",
@@ -179,6 +184,8 @@ def test_html_uses_exam_focused_companion_note_layout(tmp_path: Path):
     render_study_guide_html(guide, lecture, output)
     text = output.read_text(encoding="utf-8")
 
+    assert "<title>0831 병리학 이소민 Hemodynamic Disorders(2)</title>" in text
+    assert "<h1>0831 병리학 이소민 Hemodynamic Disorders(2)</h1>" in text
     assert text.index("수업 로드맵") < text.index('id="flow-1"')
     assert "짤족 근거 있음" in text
     assert "⭐⭐⭐" in text

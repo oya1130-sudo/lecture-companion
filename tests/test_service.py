@@ -109,6 +109,7 @@ def test_lecture_material_keeps_jokchek_topic_as_title_and_page_basis(tmp_path: 
         course="약리학",
         professor="김자은",
         topic="Pharmacokinetics-2&metabolism",
+        lecture_date="2026-08-31",
     )
     sources = [
         SourceDocument(path=tmp_path / "강의자료.pdf", kind=SourceKind.LECTURE),
@@ -117,4 +118,18 @@ def test_lecture_material_keeps_jokchek_topic_as_title_and_page_basis(tmp_path: 
 
     prepared = StudyGuideService._apply_page_basis(guide, lecture, sources)
 
-    assert prepared.title == "Pharmacokinetics-2&metabolism 수업 동반 노트"
+    assert prepared.title == "0831 약리학 김자은 Pharmacokinetics-2&metabolism"
+
+
+def test_title_format_is_applied_even_without_separate_lecture_material():
+    guide = _guide()
+    lecture = LectureRequest(
+        course="병리학",
+        professor="이소민",
+        topic="Hemodynamic Disorders(2)",
+        lecture_date="2026-08-31",
+    )
+
+    prepared = StudyGuideService._apply_page_basis(guide, lecture, [])
+
+    assert prepared.title == "0831 병리학 이소민 Hemodynamic Disorders(2)"

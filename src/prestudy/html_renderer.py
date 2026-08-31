@@ -15,6 +15,7 @@ from .models import (
     StudyGuide,
     StudyTable,
 )
+from .naming import companion_title
 from .page_basis import citation_page_labels, page_basis_filenames
 
 
@@ -216,6 +217,12 @@ def render_study_guide_html(
     sources: Sequence[SourceDocument] = (),
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    display_title = companion_title(
+        lecture.lecture_date,
+        lecture.course,
+        lecture.professor,
+        lecture.topic,
+    ) or guide.title
     ordered_flow = sorted(guide.lecture_flow, key=lambda section: (_range_start(section.source_range), section.order))
     source_manifest = _source_manifest(sources)
     page_filenames, page_kind = page_basis_filenames(sources)
@@ -394,13 +401,13 @@ search.addEventListener("input",()=>{const q=search.value.trim().toLowerCase();l
 
     document = f'''<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>{_safe(guide.title)}</title><style>{styles}</style></head>
+<title>{_safe(display_title)}</title><style>{styles}</style></head>
 <body>
 <header class="topbar"><div class="brand">수업 동반 노트</div><input id="search" class="search" type="search" placeholder="개념·약물·공식 검색"><button id="smaller" title="글자 작게">A−</button><button id="larger" title="글자 크게">A+</button><button id="theme">◐</button><button id="print">인쇄</button></header>
 <div class="shell">
 <nav class="sidebar"><h2>강의 흐름</h2>{''.join(nav_links)}</nav>
 <main class="content">
-  <section class="hero"><div class="eyebrow">{_safe(lecture.course)} · {_safe(lecture.professor)}</div><h1>{_safe(guide.title)}</h1><p>{_safe(guide.subtitle)}</p><div class="meta"><span>{_safe(lecture.topic)}</span><span>{_safe(lecture.lecture_date or '강의일 미지정')}</span><span>{len(ordered_flow)}개 구간</span><span>페이지 기준 · {_safe(page_kind.value)}</span></div>{source_manifest}</section>
+  <section class="hero"><div class="eyebrow">{_safe(lecture.course)} · {_safe(lecture.professor)}</div><h1>{_safe(display_title)}</h1><p>{_safe(guide.subtitle)}</p><div class="meta"><span>{_safe(lecture.topic)}</span><span>{_safe(lecture.lecture_date or '강의일 미지정')}</span><span>{len(ordered_flow)}개 구간</span><span>페이지 기준 · {_safe(page_kind.value)}</span></div>{source_manifest}</section>
   <section class="roadmap" id="roadmap"><p class="section-kicker">LECTURE ROADMAP</p><h2>수업 로드맵</h2><div class="exam-style-summary"><strong>교수님 출제 스타일 · 적용 전략</strong>{_safe(guide.exam_style_summary)}</div><div class="roadmap-grid">{''.join(roadmap_cards)}</div></section>
   <section class="usage"><h2>이 파일을 쓰는 법</h2><ol>{how_to}</ol></section>
   <div class="flow-actions"><button id="collapse">모두 접기</button><button id="expand">모두 펼치기</button></div>
