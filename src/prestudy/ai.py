@@ -19,8 +19,9 @@ from .storage import WORK_ROOT
 
 
 Progress = Callable[[str], None]
-_CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "2")))
+_CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "3")))
 _CODEX_SLOTS = threading.BoundedSemaphore(_CODEX_CONCURRENCY)
+_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
 
 
 def _subscription_env() -> dict[str, str]:
@@ -74,6 +75,7 @@ class CodexStudyEngine:
         executable: str = "codex",
         work_root: Path | str | None = None,
         timeout_seconds: int = 3600,
+        reasoning_effort: str | None = None,
     ) -> None:
         resolved = shutil.which(executable)
         if not resolved:
@@ -81,6 +83,14 @@ class CodexStudyEngine:
         self.executable = resolved
         self.codex_model = model.strip()
         self.model = f"codex-subscription:{self.codex_model or 'default'}"
+        selected_effort = (
+            reasoning_effort or os.environ.get("PRESTUDY_REASONING_EFFORT", "low")
+        ).strip().lower()
+        if selected_effort not in _REASONING_EFFORTS:
+            raise ValueError(
+                "Codex 추론 강도는 low, medium, high, xhigh 중 하나여야 합니다."
+            )
+        self.reasoning_effort = selected_effort
         self.work_root = Path(work_root).resolve() if work_root is not None else WORK_ROOT
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.timeout_seconds = timeout_seconds
@@ -170,6 +180,8 @@ class CodexStudyEngine:
                 "--skip-git-repo-check",
                 "--color",
                 "never",
+                "--config",
+                f'model_reasoning_effort="{self.reasoning_effort}"',
                 "--output-schema",
                 str(schema_path),
                 "--output-last-message",
@@ -186,7 +198,10 @@ class CodexStudyEngine:
             progress(f"Codex 실행 슬롯 대기 중 (최대 {_CODEX_CONCURRENCY}개 병렬)")
             try:
                 with _CODEX_SLOTS:
-                    progress("ChatGPT 구독 사용량으로 Codex 분석 실행 중")
+                    progress(
+                        "ChatGPT 구독 사용량으로 Codex 분석 실행 중 "
+                        f"(추론 강도: {self.reasoning_effort})"
+                    )
                     result = subprocess.run(
                         command,
                         input=prompt + file_context,
@@ -230,7 +245,12 @@ class CodexStudyEngine:
         result.source_kind = source.kind.value
         return result
 
-    def synthesize(self, lecture: LectureRequest, digests: list[SourceDigest]) -> StudyGuide:
+    def synthesize(
+        self,
+        lecture: LectureRequest,
+        digests: list[SourceDigest],
+        progress: Progress = lambda _: None,
+    ) -> StudyGuide:
         payload = json.dumps(
             [item.model_dump(mode="json") for item in digests],
             ensure_ascii=False,
@@ -244,4 +264,5 @@ class CodexStudyEngine:
                 ),
             ),
             StudyGuide,
+            progress=progress,
         )

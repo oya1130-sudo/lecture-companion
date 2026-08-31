@@ -11,8 +11,9 @@ from prestudy.models import LectureRequest, SourceDocument, SourceKind
 
 
 class FakeEngine:
-    def __init__(self, model="") -> None:
+    def __init__(self, model="", reasoning_effort="low") -> None:
         self.model = model
+        self.reasoning_effort = reasoning_effort
 
 
 class FakeService:

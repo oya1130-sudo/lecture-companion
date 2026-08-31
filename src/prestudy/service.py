@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
@@ -30,8 +31,14 @@ class StudyGuideService:
         self.guide_cache = guide_cache or GuideCache(self.cache.root)
         self.source_workers = max(
             1,
-            source_workers or int(os.environ.get("PRESTUDY_SOURCE_WORKERS", "2")),
+            source_workers or int(os.environ.get("PRESTUDY_SOURCE_WORKERS", "3")),
         )
+
+    @staticmethod
+    def _elapsed(started_at: float) -> str:
+        seconds = max(0, round(time.monotonic() - started_at))
+        minutes, remainder = divmod(seconds, 60)
+        return f"{minutes}분 {remainder}초" if minutes else f"{remainder}초"
 
     @staticmethod
     def _apply_page_basis(
@@ -72,6 +79,7 @@ class StudyGuideService:
         output_path: Path,
         progress: Progress = lambda _: None,
     ) -> StudyGuide:
+        total_started_at = time.monotonic()
         if not sources:
             raise ValueError("분석할 PDF가 없습니다.")
         digests: list[SourceDigest | None] = [None] * len(sources)
@@ -90,9 +98,14 @@ class StudyGuideService:
 
         def analyze(item: tuple[int, SourceDocument, str]) -> tuple[int, SourceDigest]:
             position, source, key = item
+            source_started_at = time.monotonic()
             progress(f"[{position + 1}/{len(sources)}] 병렬 분석 시작: {source.path.name}")
             digest = self.engine.analyze_source(source, lecture, progress)
             self.cache.put(key, digest)
+            progress(
+                f"[{position + 1}/{len(sources)}] 분석 완료 "
+                f"({self._elapsed(source_started_at)}): {source.path.name}"
+            )
             return position, digest
 
         if missing:
@@ -104,6 +117,8 @@ class StudyGuideService:
                     position, digest = future.result()
                     digests[position] = digest
 
+        progress(f"자료 분석 단계 완료 · 누적 {self._elapsed(total_started_at)}")
+
         complete_digests = [item for item in digests if item is not None]
         if len(complete_digests) != len(sources):
             raise RuntimeError("일부 자료 분석 결과가 누락되었습니다.")
@@ -114,13 +129,15 @@ class StudyGuideService:
             progress("완성 노트 캐시 사용 — AI 재호출 없이 출력")
             cached_guide = self._apply_page_basis(cached_guide, lecture, sources)
             self._render(cached_guide, lecture, sources, output_path, progress)
-            progress(f"완료: {output_path.name}")
+            progress(f"완료 · 총 {self._elapsed(total_started_at)}: {output_path.name}")
             return cached_guide
 
         progress("강의 흐름별 수업 동반 노트 구성 중")
-        guide = self.engine.synthesize(lecture, complete_digests)
+        synthesis_started_at = time.monotonic()
+        guide = self.engine.synthesize(lecture, complete_digests, progress=progress)
+        progress(f"최종 노트 합성 완료 · {self._elapsed(synthesis_started_at)}")
         guide = self._apply_page_basis(guide, lecture, sources)
         self.guide_cache.put(guide_key, guide)
         self._render(guide, lecture, sources, output_path, progress)
-        progress(f"완료: {output_path.name}")
+        progress(f"완료 · 총 {self._elapsed(total_started_at)}: {output_path.name}")
         return guide

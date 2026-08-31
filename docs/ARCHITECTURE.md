@@ -58,10 +58,10 @@ Streamlit UI
 ## 병렬성과 캐시
 
 - 강의 작업 기본 동시 수: 3
-- 한 강의의 미분석 자료 기본 동시 수: 2
-- 전체 Codex 프로세스 기본 동시 수: 2
+- 한 강의의 미분석 자료 기본 동시 수: 3
+- 전체 Codex 프로세스 기본 동시 수: 3
 
-환경변수 `PRESTUDY_JOB_WORKERS`, `PRESTUDY_SOURCE_WORKERS`, `PRESTUDY_CODEX_CONCURRENCY`로 조절합니다. 같은 자료·강의 조건·모델은 캐시를 사용합니다.
+기본 생성 모드는 `low` 추론 강도의 빠른 생성이며, 고급 설정에서 균형(`medium`) 또는 정밀 생성(`high`)으로 바꿀 수 있습니다. 환경변수 `PRESTUDY_JOB_WORKERS`, `PRESTUDY_SOURCE_WORKERS`, `PRESTUDY_CODEX_CONCURRENCY`, `PRESTUDY_REASONING_EFFORT`로 조절합니다. 같은 자료·강의 조건·모델은 캐시를 사용합니다.
 
 별도 강의자료가 선택되면 합성 단계와 HTML 렌더링 단계 모두 강의자료 인용만 페이지 기준으로 사용합니다. 교수명·수업 제목과 시험 출제 신호는 족첵이 기준이며, 강의자료가 없을 때는 족첵이 내용과 페이지 기준을 함께 담당합니다.
 

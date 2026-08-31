@@ -42,12 +42,30 @@ def test_codex_engine_uses_subscription_and_structured_output(monkeypatch, tmp_p
     assert "--ignore-user-config" not in exec_command
     assert "--ignore-rules" not in exec_command
     assert exec_command[exec_command.index("--sandbox") + 1] == "workspace-write"
+    config_index = exec_command.index("--config") + 1
+    assert exec_command[config_index] == 'model_reasoning_effort="low"'
     for environment in environments:
         assert "OPENAI_API_KEY" not in environment
         assert "CODEX_API_KEY" not in environment
         assert "CODEX_ACCESS_TOKEN" not in environment
 
     assert commands[-1][-1] == "-"
+
+
+def test_codex_engine_accepts_reasoning_effort_override(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("prestudy.ai.shutil.which", lambda _: "codex")
+    monkeypatch.setattr(
+        "prestudy.ai.subprocess.run",
+        lambda command, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="Logged in using ChatGPT\n",
+            stderr="",
+        ),
+    )
+
+    engine = CodexStudyEngine(work_root=tmp_path, reasoning_effort="medium")
+
+    assert engine.reasoning_effort == "medium"
 
 
 def test_codex_engine_rejects_api_key_login(monkeypatch, tmp_path: Path):

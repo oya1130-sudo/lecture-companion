@@ -36,11 +36,16 @@ RELIABILITY_LABELS = {
     "잘 모름": SummaryReliability.UNKNOWN,
 }
 
-CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "2")))
+CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "3")))
+SPEED_PROFILES = {
+    "빠른 생성 (권장)": "low",
+    "균형": "medium",
+    "정밀 생성": "high",
+}
 
 
 @st.cache_resource
-def _job_manager(config_version: str = "persistent-history-v2") -> JobManager:
+def _job_manager(config_version: str = "persistent-history-v3") -> JobManager:
     # Bump config_version when shared worker construction changes so a hot
     # reload cannot keep an older JobManager instance alive.
     return JobManager(state_path=JOB_STATE_PATH, history_output_root=OUTPUT_ROOT)
@@ -361,7 +366,29 @@ def run() -> None:
                 st.warning("Google Drive 자동 저장 폴더를 찾지 못했습니다.")
 
         model = ""
+        speed_profile = "빠른 생성 (권장)"
         with st.expander("고급 설정"):
+            default_effort = (
+                os.environ.get("PRESTUDY_REASONING_EFFORT", "low").strip().lower()
+            )
+            default_profile = next(
+                (
+                    label
+                    for label, effort in SPEED_PROFILES.items()
+                    if effort == default_effort
+                ),
+                "빠른 생성 (권장)",
+            )
+            speed_profile = st.selectbox(
+                "생성 속도",
+                options=list(SPEED_PROFILES),
+                index=list(SPEED_PROFILES).index(default_profile),
+                help=(
+                    "빠른 생성은 낮은 추론 강도로 지연을 줄입니다. "
+                    "정밀 생성은 더 오래 걸릴 수 있습니다."
+                ),
+                key="speed-profile",
+            )
             model = st.text_input(
                 "Codex 모델",
                 value=os.environ.get("PRESTUDY_CODEX_MODEL", ""),
@@ -594,7 +621,14 @@ def run() -> None:
             )
             OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
             output_path = _available_output_path(filename, manager)
-            snapshot = manager.submit(job_id, lecture, sources, output_path, model=model)
+            snapshot = manager.submit(
+                job_id,
+                lecture,
+                sources,
+                output_path,
+                model=model,
+                reasoning_effort=SPEED_PROFILES[speed_profile],
+            )
             st.session_state.upload_batch += 1
             st.session_state.upload_flash = (
                 f"{snapshot.label} 작업을 큐에 추가했습니다. 바로 다음 강의를 제출할 수 있습니다."

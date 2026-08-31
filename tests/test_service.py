@@ -63,7 +63,7 @@ class FakeEngine:
             self.active -= 1
         return _digest(source)
 
-    def synthesize(self, lecture, digests):
+    def synthesize(self, lecture, digests, progress=lambda _: None):
         self.synthesis_count += 1
         return _guide()
 

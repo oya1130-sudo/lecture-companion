@@ -289,6 +289,7 @@ class JobManager:
         sources: list[SourceDocument],
         output_path: Path,
         model: str = "",
+        reasoning_effort: str = "low",
     ) -> JobSnapshot:
         job = _Job(
             job_id=job_id,
@@ -307,7 +308,14 @@ class JobManager:
         with self.lock:
             self.jobs[job_id] = job
         self._save_state()
-        self.executor.submit(self._run, job, lecture, sources, model)
+        self.executor.submit(
+            self._run,
+            job,
+            lecture,
+            sources,
+            model,
+            reasoning_effort,
+        )
         return job.snapshot()
 
     def _run(
@@ -316,12 +324,16 @@ class JobManager:
         lecture: LectureRequest,
         sources: list[SourceDocument],
         model: str,
+        reasoning_effort: str,
     ) -> None:
         with job.lock:
             job.status = "running"
         job.log("작업 시작")
         try:
-            engine = CodexStudyEngine(model=model)
+            engine = CodexStudyEngine(
+                model=model,
+                reasoning_effort=reasoning_effort,
+            )
             service = StudyGuideService(engine)
             service.create(lecture, sources, job.output_path, job.log)
             self._save_to_drive(job, lecture.course)
