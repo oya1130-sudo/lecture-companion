@@ -1,5 +1,5 @@
 import inspect
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,7 @@ def test_running_job_does_not_use_invalid_indeterminate_progress_value():
     source = inspect.getsource(web._render_job_queue)
 
     assert "st.progress(None" not in source
+    assert '@st.fragment(run_every="2s")' in source
     assert "이전 작업 내역" in source
 
 
@@ -28,6 +29,13 @@ def test_job_card_uses_status_and_deferred_download():
     assert "st.status(" in source
     assert "data=lambda" in source
     assert "사용한 자료" in source
+
+
+def test_elapsed_label_includes_live_seconds():
+    started_at = datetime(2026, 9, 2, 9, 0, 0)
+
+    assert web._elapsed_label(started_at, datetime(2026, 9, 2, 9, 0, 7)) == "7초"
+    assert web._elapsed_label(started_at, datetime(2026, 9, 2, 9, 2, 13)) == "2분 13초"
 
 
 def test_output_filename_uses_mmdd_and_readable_spaces():

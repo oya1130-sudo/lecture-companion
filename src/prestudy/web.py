@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import socket
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import streamlit as st
@@ -176,6 +176,12 @@ def _selected_filenames(values) -> list[str]:
     return filenames
 
 
+def _elapsed_label(started_at: datetime, now: datetime | None = None) -> str:
+    elapsed_seconds = max(0, int(((now or datetime.now()) - started_at).total_seconds()))
+    minutes, seconds = divmod(elapsed_seconds, 60)
+    return f"{minutes}분 {seconds}초" if minutes else f"{seconds}초"
+
+
 def _persist_guides(
     files,
     guides_root: Path = GUIDES_ROOT,
@@ -243,11 +249,16 @@ def _render_job_card(snapshot: JobSnapshot) -> None:
             details.append(f"강의일 {snapshot.lecture_date}")
         if snapshot.finished_at is not None:
             details.append(snapshot.finished_at.strftime("완료 %m-%d %H:%M"))
+        elif snapshot.status in {"queued", "running"}:
+            details.append(f"경과 {_elapsed_label(snapshot.created_at)}")
         st.caption(" · ".join(details))
 
         if snapshot.status == "running":
+            status_message = snapshot.messages[-1] if snapshot.messages else "작업 시작 중"
+            if status_message.startswith("Codex 분석 계속 진행 중 · 경과"):
+                status_message = "Codex 분석 계속 진행 중"
             st.status(
-                snapshot.messages[-1] if snapshot.messages else "작업 시작 중",
+                f"{status_message} · 전체 경과 {_elapsed_label(snapshot.created_at)}",
                 state="running",
                 expanded=False,
                 type="compact",
