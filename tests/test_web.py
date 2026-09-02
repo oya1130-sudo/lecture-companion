@@ -31,6 +31,24 @@ def test_job_card_uses_status_and_deferred_download():
     assert "사용한 자료" in source
 
 
+def test_drive_sources_are_refreshed_dynamically():
+    source = inspect.getsource(web.run)
+
+    assert "drive_root_values = _drive_source_roots()" in source
+    assert "Google Drive 다시 찾기" in source
+    assert "JOKCHEK_DRIVE_ROOT" not in source
+
+
+def test_upload_callback_keeps_first_selected_file(monkeypatch):
+    upload = FakeUpload("summary.pdf", b"%PDF-summary")
+    state = {"summary-0": [upload]}
+    monkeypatch.setattr(web.st, "session_state", state)
+
+    web._remember_uploads("summary-0", "pending-summary-0")
+
+    assert state["pending-summary-0"] == [upload]
+
+
 def test_elapsed_label_includes_live_seconds():
     started_at = datetime(2026, 9, 2, 9, 0, 0)
 

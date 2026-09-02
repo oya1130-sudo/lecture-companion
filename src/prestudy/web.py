@@ -19,13 +19,11 @@ from .storage import (
     DRIVE_OUTPUT_ROOT,
     GUIDES_ROOT,
     JOB_STATE_PATH,
-    JOKCHEK_DRIVE_ROOT,
-    LECTURE_DRIVE_ROOT,
     OUTPUT_ROOT,
     STORAGE_ROOT,
-    SUMMARY_DRIVE_ROOT,
     USER_GUIDES_CONFIG,
     WORK_ROOT,
+    discover_drive_source_roots,
 )
 
 
@@ -113,7 +111,7 @@ def _available_output_path(filename: str, manager: JobManager) -> Path:
     return candidate
 
 
-@st.cache_data(ttl="2m", max_entries=20, show_spinner=False)
+@st.cache_data(ttl="15s", max_entries=20, show_spinner=False)
 def _drive_pdf_options(root_value: str, course: str) -> list[str]:
     root = Path(root_value)
     if not root.is_dir() or not course:
@@ -133,6 +131,17 @@ def _drive_pdf_options(root_value: str, course: str) -> list[str]:
     except OSError:
         return []
     return sorted(pdfs, key=lambda value: Path(value).name.casefold(), reverse=True)
+
+
+@st.cache_data(ttl="15s", max_entries=1, show_spinner=False)
+def _drive_source_roots() -> tuple[str, str, str]:
+    roots = discover_drive_source_roots()
+    return tuple(str(root) if root is not None else "" for root in roots)
+
+
+def _refresh_drive_sources() -> None:
+    _drive_source_roots.clear()
+    _drive_pdf_options.clear()
 
 
 def _drive_option_label(value: str) -> str:
@@ -166,6 +175,27 @@ def _upload_summary(label: str, files) -> None:
     names = ", ".join(file.name for file in files)
     st.success(f"{label} {len(files)}개 업로드 완료 · {total_mb:.1f}MB")
     st.caption(names)
+
+
+def _remember_uploads(widget_key: str, pending_key: str) -> None:
+    st.session_state[pending_key] = list(st.session_state.get(widget_key) or [])
+
+
+def _persistent_file_uploader(label: str, role: str, upload_batch: int):
+    widget_key = f"{role}-{upload_batch}"
+    pending_key = f"pending-{widget_key}"
+    uploads = st.file_uploader(
+        label,
+        type=["pdf", "application/pdf"],
+        accept_multiple_files=True,
+        max_upload_size=500,
+        key=widget_key,
+        on_change=_remember_uploads,
+        args=(widget_key, pending_key),
+    )
+    if pending_key not in st.session_state:
+        st.session_state[pending_key] = list(uploads or [])
+    return list(st.session_state[pending_key])
 
 
 def _selected_filenames(values) -> list[str]:
@@ -444,6 +474,10 @@ def run() -> None:
 
     st.subheader("새 강의 작업 추가")
     upload_batch = st.session_state.upload_batch
+    drive_root_values = _drive_source_roots()
+    jokchek_drive_root = Path(drive_root_values[0]) if drive_root_values[0] else None
+    lecture_drive_root = Path(drive_root_values[1]) if drive_root_values[1] else None
+    summary_drive_root = Path(drive_root_values[2]) if drive_root_values[2] else None
     course = st.selectbox(
         "과목",
         list(COURSE_DRIVE_FOLDERS),
@@ -451,7 +485,7 @@ def run() -> None:
         placeholder="과목 선택",
         key="course-selection",
     )
-    drive_available = JOKCHEK_DRIVE_ROOT is not None
+    drive_available = jokchek_drive_root is not None
     source_mode = st.segmented_control(
         "자료 가져오기",
         ["Google Drive에서 선택", "기기에서 업로드"],
@@ -468,20 +502,29 @@ def run() -> None:
     drive_lecture_values: list[str] = []
     drive_summary_values: list[str] = []
     if source_mode == "Google Drive에서 선택":
+        st.button(
+            "Google Drive 다시 찾기",
+            icon=":material/refresh:",
+            on_click=_refresh_drive_sources,
+            help="Drive가 늦게 연결되었거나 목록이 비어 있을 때 누르세요.",
+        )
         if not drive_available:
-            st.error("서버에서 족첵 Google Drive 폴더를 찾지 못했습니다. 기기 업로드를 사용해 주세요.")
+            st.error(
+                "서버에서 족첵 Google Drive 폴더를 찾지 못했습니다. "
+                "Drive 연결을 확인한 뒤 ‘Google Drive 다시 찾기’를 눌러 주세요."
+            )
         elif not course:
             st.info("과목을 선택하면 Google Drive의 족첵·강의자료·선배 써머리 목록이 나타납니다.")
         else:
-            jokchek_options = _drive_pdf_options(str(JOKCHEK_DRIVE_ROOT), course)
+            jokchek_options = _drive_pdf_options(str(jokchek_drive_root), course)
             lecture_options = (
-                _drive_pdf_options(str(LECTURE_DRIVE_ROOT), course)
-                if LECTURE_DRIVE_ROOT is not None
+                _drive_pdf_options(str(lecture_drive_root), course)
+                if lecture_drive_root is not None
                 else []
             )
             summary_options = (
-                _drive_pdf_options(str(SUMMARY_DRIVE_ROOT), course)
-                if SUMMARY_DRIVE_ROOT is not None
+                _drive_pdf_options(str(summary_drive_root), course)
+                if summary_drive_root is not None
                 else []
             )
             st.caption(
@@ -518,36 +561,21 @@ def run() -> None:
                     )
     else:
         st.caption("Drive 목록에 없는 자료만 태블릿이나 노트북에서 직접 업로드하세요.")
-        jokchek_uploads = st.file_uploader(
-            "족첵 PDF (필수)",
-            type=["pdf", "application/pdf"],
-            accept_multiple_files=True,
-            max_upload_size=500,
-            key=f"jokchek-{upload_batch}",
+        jokchek_uploads = _persistent_file_uploader(
+            "족첵 PDF (필수)", "jokchek", upload_batch
         )
         _upload_summary("족첵", jokchek_uploads)
         with st.container(border=True):
             st.markdown("**선택 자료**")
             st.caption("족첵에 강의록이 없을 때만 강의자료를 추가하세요.")
-            left, right = st.columns(2)
-            with left:
-                lecture_uploads = st.file_uploader(
-                    "강의자료 PDF (선택)",
-                    type=["pdf", "application/pdf"],
-                    accept_multiple_files=True,
-                    max_upload_size=500,
-                    key=f"lecture-{upload_batch}",
-                )
-                _upload_summary("강의자료", lecture_uploads)
-            with right:
-                summary_uploads = st.file_uploader(
-                    "선배 써머리 PDF (선택)",
-                    type=["pdf", "application/pdf"],
-                    accept_multiple_files=True,
-                    max_upload_size=500,
-                    key=f"summary-{upload_batch}",
-                )
-                _upload_summary("선배 써머리", summary_uploads)
+            lecture_uploads = _persistent_file_uploader(
+                "강의자료 PDF (선택)", "lecture", upload_batch
+            )
+            _upload_summary("강의자료", lecture_uploads)
+            summary_uploads = _persistent_file_uploader(
+                "선배 써머리 PDF (선택)", "summary", upload_batch
+            )
+            _upload_summary("선배 써머리", summary_uploads)
 
     selected_jokchek = (
         drive_jokchek_values
@@ -609,9 +637,9 @@ def run() -> None:
             selected_guides = _save_uploads(replacement_guides, job_root / "guides") if replacement_guides else guide_paths
             if source_mode == "Google Drive에서 선택":
                 try:
-                    jokchek_paths = _validated_drive_paths(drive_jokchek_values, JOKCHEK_DRIVE_ROOT)
-                    lecture_paths = _validated_drive_paths(drive_lecture_values, LECTURE_DRIVE_ROOT)
-                    summary_paths = _validated_drive_paths(drive_summary_values, SUMMARY_DRIVE_ROOT)
+                    jokchek_paths = _validated_drive_paths(drive_jokchek_values, jokchek_drive_root)
+                    lecture_paths = _validated_drive_paths(drive_lecture_values, lecture_drive_root)
+                    summary_paths = _validated_drive_paths(drive_summary_values, summary_drive_root)
                 except ValueError as exc:
                     st.error(str(exc))
                     st.stop()
@@ -646,6 +674,8 @@ def run() -> None:
                 model=model,
                 reasoning_effort=SPEED_PROFILES[speed_profile],
             )
+            for role in ("jokchek", "lecture", "summary"):
+                st.session_state.pop(f"pending-{role}-{upload_batch}", None)
             st.session_state.upload_batch += 1
             st.session_state.upload_flash = (
                 f"{snapshot.label} 작업을 큐에 추가했습니다. 바로 다음 강의를 제출할 수 있습니다."
