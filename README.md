@@ -1,4 +1,15 @@
-# 수업 동반 노트 생성기
+# prestudy와 summed
+
+두 프로그램은 서로 다른 폴더, 데이터, 진입점과 포트로 독립 실행됩니다.
+
+- `prestudy`: `C:\Users\oya11\Desktop\prestudy-pdf`의 기존 원본과 바탕화면 `prestudy` 바로가기 · <http://localhost:8501>
+- `summed`: 현재 폴더와 바탕화면 `summed` 바로가기 · <http://localhost:8502>
+
+기존 prestudy의 소스·캐시·작업 이력은 원본 폴더에 그대로 보존됩니다. 현재 프로젝트의 실행 파일은 summed만 시작하므로 prestudy를 덮어쓰지 않습니다. summed 사용법은 [SUMMED.md](SUMMED.md)를 참고하세요.
+
+---
+
+# prestudy 수업 동반 노트 생성기
 
 학습가이드, 족첵, 선택적인 강의자료와 선배 써머리 PDF를 분석해 수업 중 강의록 옆에 띄워 볼 수 있는 단일 HTML 노트를 만듭니다. 강의자료 페이지 순서에 맞춘 필기 대체 노트, 강조점, 들을 포인트, 최소 현장 메모를 제공합니다.
 

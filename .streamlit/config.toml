@@ -1,6 +1,6 @@
 [server]
-address = "0.0.0.0"
-port = 8501
+address = "127.0.0.1"
+port = 8502
 headless = true
 maxUploadSize = 500
 enableXsrfProtection = true
@@ -10,3 +10,13 @@ gatherUsageStats = false
 
 [client]
 showErrorDetails = false
+
+[theme]
+base = "light"
+primaryColor = "#246B4E"
+backgroundColor = "#F5F7F3"
+secondaryBackgroundColor = "#E8EFEA"
+textColor = "#1D2925"
+font = "sans-serif"
+baseRadius = "medium"
+buttonRadius = "full"

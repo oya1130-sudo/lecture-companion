@@ -6,6 +6,7 @@ __pycache__/
 .pytest_cache/
 .prestudy-cache/
 .prestudy-work/
+.summed-data/
 credentials.json
 token.json
 output/

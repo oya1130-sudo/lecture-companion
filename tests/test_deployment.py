@@ -55,10 +55,10 @@ def test_ci_builds_and_runs_container_on_native_arm64():
 
 
 def test_windows_launcher_reopens_or_starts_app_then_opens_browser():
-    launcher = (ROOT / "run.ps1").read_text(encoding="utf-8")
+    launcher = (ROOT / "run-program.ps1").read_text(encoding="utf-8")
 
     assert "if (Test-AppHealth -Attempts 4)" in launcher
     assert "UseShellExecute = $true" in launcher
-    assert "Start-Process `\n    -FilePath $pythonCommand" in launcher
+    assert "Start-Process `\n    -FilePath $venvPython" in launcher
     assert "--server.headless', 'true'" in launcher
     assert "Start-Process -FilePath 'powershell.exe'" not in launcher

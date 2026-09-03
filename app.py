@@ -1,4 +1,4 @@
-from prestudy.web import run
+from summed.web import run
 
 
 if __name__ == "__main__":

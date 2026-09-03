@@ -1,5 +1,7 @@
 # 처음 사용하는 사람을 위한 안내
 
+> 현재 기본 앱 `summed`의 사용 순서는 [SUMMED.md](SUMMED.md)를 참고하세요. 아래 내용은 기존 `prestudy` 모듈용 안내입니다.
+
 ## 1. 준비
 
 1. ZIP을 다운로드해 원하는 폴더에 완전히 압축 해제합니다.
@@ -8,7 +10,7 @@
 
 ## 2. 실행
 
-`start-app.cmd`를 더블클릭합니다. 처음에는 Python 패키지를 설치합니다. Codex 로그인이 필요하면 브라우저에서 **Sign in with ChatGPT**를 선택합니다. API 키 방식은 이 프로그램에서 사용할 수 없습니다.
+prestudy는 기존 `C:\Users\oya11\Desktop\prestudy-pdf` 폴더 또는 바탕화면 `prestudy` 바로가기에서 실행합니다. summed는 현재 프로젝트의 `start-app.cmd`, `start-summed.cmd` 또는 바탕화면 `summed` 바로가기로 실행합니다. 처음에는 Python 패키지를 설치합니다. Codex 로그인이 필요하면 브라우저에서 **Sign in with ChatGPT**를 선택합니다. API 키 방식은 이 프로그램에서 사용할 수 없습니다.
 
 ## 3. 개인 자료 설정
 
