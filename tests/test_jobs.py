@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 import prestudy.jobs as jobs_module
-from prestudy.jobs import JobManager
+from prestudy.jobs import JobManager, JobSource, _Job
 from prestudy.models import LectureRequest, SourceDocument, SourceKind
 
 
@@ -136,7 +136,7 @@ def test_job_history_retries_a_transient_windows_file_lock(tmp_path: Path, monke
 
     assert attempts == 3
     assert manager.state_error == ""
-    assert json.loads(state_path.read_text(encoding="utf-8"))["version"] == 2
+    assert json.loads(state_path.read_text(encoding="utf-8"))["version"] == 3
     assert not list(tmp_path.glob(".jobs.json.*.tmp"))
 
 
@@ -219,3 +219,37 @@ def test_running_job_is_marked_failed_after_restart(tmp_path: Path):
 
     assert snapshot.status == "failed"
     assert "서버가 재시작" in snapshot.error
+
+
+def test_job_tracks_real_pipeline_progress_without_resetting_synthesis(tmp_path: Path):
+    job = _Job(
+        job_id="progress",
+        label="예방의학 · 측정",
+        output_path=tmp_path / "progress.html",
+        source_files=[
+            JobSource(kind="학습가이드", filename="guide.pdf"),
+            JobSource(kind="족첵", filename="jokchek.pdf"),
+        ],
+        source_total=2,
+    )
+
+    job.log("작업 시작")
+    assert job.current_stage == "preparing"
+
+    job.log("[1/2] 캐시 사용: guide.pdf")
+    assert job.current_stage == "analyzing"
+    assert job.source_completed == 1
+
+    job.log("[2/2] 분석 완료 (12초): jokchek.pdf")
+    assert job.source_completed == 2
+
+    job.log("강의 흐름별 수업 동반 노트 구성 중")
+    synthesis_started_at = job.stage_started_at
+    job.log("Codex 실행 슬롯 대기 중 · 현재 1/3")
+    assert job.current_stage == "synthesizing"
+    assert job.stage_started_at == synthesis_started_at
+
+    job.log("태블릿용 HTML 구성 중")
+    assert job.current_stage == "rendering"
+    job.log("Google Drive 자동 저장 중")
+    assert job.current_stage == "saving"

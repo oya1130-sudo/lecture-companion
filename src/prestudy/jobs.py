@@ -54,6 +54,10 @@ class JobSnapshot:
     error: str
     created_at: datetime
     finished_at: datetime | None
+    current_stage: str
+    stage_started_at: datetime
+    source_completed: int
+    source_total: int
 
 
 @dataclass
@@ -73,11 +77,47 @@ class _Job:
     drive_path: Path | None = None
     drive_error: str = ""
     error: str = ""
+    current_stage: str = "queued"
+    stage_started_at: datetime | None = None
+    source_completed: int = 0
+    source_total: int = 0
     lock: threading.RLock = field(default_factory=threading.RLock)
     on_change: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
+    @staticmethod
+    def _stage_for_message(message: str) -> str | None:
+        if message == "작업 시작":
+            return "preparing"
+        if (
+            "캐시 사용:" in message
+            or "병렬 분석 시작:" in message
+            or "로컬 분석 준비 중" in message
+            or "자료 분석 단계" in message
+        ):
+            return "analyzing"
+        if (
+            "강의 흐름별 수업 동반 노트 구성 중" in message
+            or "완성 노트 캐시 사용" in message
+            or "최종 노트 합성" in message
+        ):
+            return "synthesizing"
+        if "HTML 구성 중" in message or "PDF 렌더링 중" in message:
+            return "rendering"
+        if message.startswith("Google Drive") or message.startswith("Drive 자동 저장"):
+            return "saving"
+        if message.startswith("실패:"):
+            return "failed"
+        return None
+
     def log(self, message: str) -> None:
         with self.lock:
+            now = datetime.now()
+            next_stage = self._stage_for_message(message)
+            if next_stage is not None and next_stage != self.current_stage:
+                self.current_stage = next_stage
+                self.stage_started_at = now
+            if "캐시 사용:" in message or "분석 완료 (" in message:
+                self.source_completed = min(self.source_total, self.source_completed + 1)
             self.messages.append(message)
             self.messages = self.messages[-30:]
         if self.on_change is not None:
@@ -101,6 +141,10 @@ class _Job:
                 error=self.error,
                 created_at=self.created_at,
                 finished_at=self.finished_at,
+                current_stage=self.current_stage,
+                stage_started_at=self.stage_started_at or self.created_at,
+                source_completed=self.source_completed,
+                source_total=self.source_total,
             )
 
 
@@ -147,6 +191,10 @@ class JobManager:
             "error": snapshot.error,
             "created_at": snapshot.created_at.isoformat(),
             "finished_at": snapshot.finished_at.isoformat() if snapshot.finished_at is not None else None,
+            "current_stage": snapshot.current_stage,
+            "stage_started_at": snapshot.stage_started_at.isoformat(),
+            "source_completed": snapshot.source_completed,
+            "source_total": snapshot.source_total,
         }
 
     def _save_state(self) -> None:
@@ -170,7 +218,7 @@ class JobManager:
                     merged_jobs = {}
             merged_jobs.update({str(item["job_id"]): item for item in serialized})
             payload = json.dumps(
-                {"version": 2, "jobs": list(merged_jobs.values())},
+                {"version": 3, "jobs": list(merged_jobs.values())},
                 ensure_ascii=False,
                 indent=2,
             )
@@ -231,6 +279,12 @@ class JobManager:
                     for value in item.get("source_files", [])
                     if isinstance(value, dict) and value.get("filename")
                 ]
+                created_at = datetime.fromisoformat(item["created_at"])
+                restored_stage = str(item.get("current_stage", status))
+                if status == "failed":
+                    restored_stage = "failed"
+                elif status == "complete":
+                    restored_stage = "complete"
                 job = _Job(
                     job_id=str(item["job_id"]),
                     label=str(item["label"]),
@@ -245,8 +299,21 @@ class JobManager:
                     drive_path=Path(item["drive_path"]) if item.get("drive_path") else None,
                     drive_error=str(item.get("drive_error", "")),
                     error=error,
-                    created_at=datetime.fromisoformat(item["created_at"]),
+                    created_at=created_at,
                     finished_at=finished_at,
+                    current_stage=restored_stage,
+                    stage_started_at=(
+                        datetime.fromisoformat(item["stage_started_at"])
+                        if item.get("stage_started_at")
+                        else finished_at or created_at
+                    ),
+                    source_completed=int(
+                        item.get(
+                            "source_completed",
+                            len(source_files) if status == "complete" else 0,
+                        )
+                    ),
+                    source_total=int(item.get("source_total", len(source_files))),
                     on_change=self._save_state,
                 )
                 self.jobs[job.job_id] = job
@@ -292,6 +359,8 @@ class JobManager:
             course=self._history_course(path),
             topic=self._history_label(path),
             status="complete",
+            current_stage="complete",
+            stage_started_at=modified_at,
             messages=["기존 완성 HTML에서 불러온 작업 내역"],
             output_path=path,
             drive_path=drive_path,
@@ -354,6 +423,7 @@ class JobManager:
                 JobSource(kind=source.kind.value, filename=source.path.name)
                 for source in sources
             ],
+            source_total=len(sources),
             output_path=output_path,
             on_change=self._save_state,
         )
@@ -392,15 +462,20 @@ class JobManager:
             with job.lock:
                 job.status = "complete"
                 job.finished_at = datetime.now()
+                job.current_stage = "complete"
+                job.stage_started_at = job.finished_at
             self._save_state()
         except Exception as exc:
             with job.lock:
                 job.status = "failed"
                 job.error = str(exc)
                 job.finished_at = datetime.now()
+                job.current_stage = "failed"
+                job.stage_started_at = job.finished_at
             job.log(f"실패: {exc}")
 
     def _save_to_drive(self, job: _Job, course: str) -> None:
+        job.log("Google Drive 자동 저장 중")
         if self.drive_output_root is None:
             with job.lock:
                 job.drive_error = "Google Drive의 ‘내 드라이브’를 찾지 못했습니다."

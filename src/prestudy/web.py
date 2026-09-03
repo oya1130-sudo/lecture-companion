@@ -35,6 +35,20 @@ RELIABILITY_LABELS = {
 }
 
 CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "3")))
+SYNTHESIS_TIMEOUT_SECONDS = max(
+    1, int(os.environ.get("PRESTUDY_SYNTHESIS_TIMEOUT_SECONDS", "600"))
+)
+STAGE_LABELS = {
+    "queued": "대기",
+    "preparing": "자료 준비",
+    "analyzing": "PDF 분석",
+    "synthesizing": "노트 구성",
+    "rendering": "HTML 생성",
+    "saving": "Drive 저장",
+    "complete": "완료",
+    "failed": "실패",
+}
+ACTIVE_STAGE_ORDER = ["preparing", "analyzing", "synthesizing", "rendering", "saving"]
 SPEED_PROFILES = {
     "빠른 생성 (권장)": "low",
     "균형": "medium",
@@ -43,7 +57,7 @@ SPEED_PROFILES = {
 
 
 @st.cache_resource
-def _job_manager(config_version: str = "persistent-history-v4") -> JobManager:
+def _job_manager(config_version: str = "persistent-history-v5") -> JobManager:
     # Bump config_version when shared worker construction changes so a hot
     # reload cannot keep an older JobManager instance alive.
     return JobManager(state_path=JOB_STATE_PATH, history_output_root=OUTPUT_ROOT)
@@ -206,10 +220,80 @@ def _selected_filenames(values) -> list[str]:
     return filenames
 
 
-def _elapsed_label(started_at: datetime, now: datetime | None = None) -> str:
-    elapsed_seconds = max(0, int(((now or datetime.now()) - started_at).total_seconds()))
+def _elapsed_seconds(started_at: datetime, now: datetime | None = None) -> int:
+    return max(0, int(((now or datetime.now()) - started_at).total_seconds()))
+
+
+def _duration_label(elapsed_seconds: int) -> str:
     minutes, seconds = divmod(elapsed_seconds, 60)
     return f"{minutes}분 {seconds}초" if minutes else f"{seconds}초"
+
+
+def _elapsed_label(started_at: datetime, now: datetime | None = None) -> str:
+    return _duration_label(_elapsed_seconds(started_at, now))
+
+
+def _clean_progress_message(message: str) -> str:
+    if message.startswith("Codex 분석 계속 진행 중 · 경과"):
+        return "Codex 분석 계속 진행 중"
+    return message
+
+
+def _render_active_progress(snapshot: JobSnapshot) -> None:
+    now = datetime.now()
+    current_stage = snapshot.current_stage
+    current_index = (
+        ACTIVE_STAGE_ORDER.index(current_stage)
+        if current_stage in ACTIVE_STAGE_ORDER
+        else -1
+    )
+
+    pipeline = st.container(horizontal=True, vertical_alignment="center")
+    with pipeline:
+        for index, stage in enumerate(ACTIVE_STAGE_ORDER):
+            if index < current_index:
+                st.badge(STAGE_LABELS[stage], color="green", icon=":material/check:")
+            elif index == current_index:
+                st.badge(STAGE_LABELS[stage], color="blue", icon=":material/play_arrow:")
+            else:
+                st.badge(STAGE_LABELS[stage], color="gray")
+
+    stage_started_at = snapshot.stage_started_at or snapshot.created_at
+    stage_elapsed = _elapsed_seconds(stage_started_at, now)
+    overall_elapsed = _elapsed_seconds(snapshot.created_at, now)
+    st.caption(
+        f"현재 단계 {STAGE_LABELS.get(current_stage, '처리 중')} · "
+        f"단계 경과 {_duration_label(stage_elapsed)} · "
+        f"전체 경과 {_duration_label(overall_elapsed)}"
+    )
+
+    if current_stage == "analyzing" and snapshot.source_total:
+        completed = min(snapshot.source_completed, snapshot.source_total)
+        st.progress(
+            completed / snapshot.source_total,
+            text=f"PDF 분석 {completed}/{snapshot.source_total}개 완료",
+        )
+    elif current_stage == "synthesizing":
+        remaining = max(0, SYNTHESIS_TIMEOUT_SECONDS - stage_elapsed)
+        st.progress(
+            min(stage_elapsed / SYNTHESIS_TIMEOUT_SECONDS, 1.0),
+            text=(
+                f"시간 제한 사용 {_duration_label(stage_elapsed)} / "
+                f"{_duration_label(SYNTHESIS_TIMEOUT_SECONDS)} · "
+                f"남은 시간 {_duration_label(remaining)}"
+            ),
+        )
+        st.caption("이 막대는 예상 완료율이 아니라 최종 합성의 시간 제한 사용량입니다.")
+
+    status_message = _clean_progress_message(
+        snapshot.messages[-1] if snapshot.messages else "작업 시작 중"
+    )
+    st.status(
+        f"{STAGE_LABELS.get(current_stage, '처리 중')} · {status_message}",
+        state="running",
+        expanded=False,
+        type="compact",
+    )
 
 
 def _persist_guides(
@@ -284,15 +368,7 @@ def _render_job_card(snapshot: JobSnapshot) -> None:
         st.caption(" · ".join(details))
 
         if snapshot.status == "running":
-            status_message = snapshot.messages[-1] if snapshot.messages else "작업 시작 중"
-            if status_message.startswith("Codex 분석 계속 진행 중 · 경과"):
-                status_message = "Codex 분석 계속 진행 중"
-            st.status(
-                f"{status_message} · 전체 경과 {_elapsed_label(snapshot.created_at)}",
-                state="running",
-                expanded=False,
-                type="compact",
-            )
+            _render_active_progress(snapshot)
         elif snapshot.status == "queued":
             st.caption("실행 슬롯을 기다리고 있습니다.")
         elif snapshot.status == "failed":

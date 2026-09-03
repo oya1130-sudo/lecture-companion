@@ -25,10 +25,22 @@ def test_running_job_does_not_use_invalid_indeterminate_progress_value():
 
 def test_job_card_uses_status_and_deferred_download():
     source = inspect.getsource(web._render_job_card)
+    progress_source = inspect.getsource(web._render_active_progress)
 
-    assert "st.status(" in source
+    assert "_render_active_progress(snapshot)" in source
+    assert "st.status(" in progress_source
     assert "data=lambda" in source
     assert "사용한 자료" in source
+
+
+def test_active_progress_uses_only_measurable_progress_bars():
+    source = inspect.getsource(web._render_active_progress)
+
+    assert "PDF 분석 {completed}/{snapshot.source_total}개 완료" in source
+    assert "시간 제한 사용" in source
+    assert "예상 완료율이 아니라" in source
+    assert "단계 경과" in source
+    assert "전체 경과" in source
 
 
 def test_drive_sources_are_refreshed_dynamically():
