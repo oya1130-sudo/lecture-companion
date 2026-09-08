@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from prestudy.ai import CodexExecutionError, CodexStudyEngine, _strict_schema
-from prestudy.models import LectureRequest, StudyGuide
+from prestudy.models import LectureRequest, SourceDocument, SourceKind, StudyGuide
 
 
 class MiniResult(BaseModel):
@@ -112,7 +112,7 @@ def test_codex_engine_uses_bounded_default_timeouts(monkeypatch, tmp_path: Path)
     engine = CodexStudyEngine(work_root=tmp_path)
 
     assert engine.timeout_seconds == 600
-    assert engine.synthesis_timeout_seconds == 600
+    assert engine.synthesis_timeout_seconds == 480
 
 
 def test_codex_engine_falls_back_after_default_model_timeout(
@@ -143,7 +143,7 @@ def test_codex_engine_falls_back_after_default_model_timeout(
     assert commands[-1][commands[-1].index("--model") + 1] == "gpt-5.6-luna"
 
 
-def test_default_synthesis_prefers_fast_model_with_ten_minute_limit(
+def test_default_synthesis_prefers_fast_model_with_eight_minute_limit(
     monkeypatch,
     tmp_path: Path,
 ):
@@ -171,7 +171,45 @@ def test_default_synthesis_prefers_fast_model_with_ten_minute_limit(
 
     assert result is sentinel
     assert captured["preferred_model"] == "gpt-5.6-luna"
-    assert captured["timeout_seconds"] == 600
+    assert captured["timeout_seconds"] == 480
+
+
+def test_direct_synthesis_uses_one_fast_call_with_inline_source_text(
+    monkeypatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr("prestudy.ai.shutil.which", lambda _: "codex")
+    monkeypatch.setattr(
+        "prestudy.ai.subprocess.run",
+        lambda command, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="Logged in using ChatGPT\n",
+            stderr="",
+        ),
+    )
+    engine = CodexStudyEngine(work_root=tmp_path)
+    captured = {}
+    sentinel = object()
+    source_path = tmp_path / "족첵.pdf"
+    source_path.write_bytes(b"%PDF-test")
+
+    def fake_structured(prompt, output_model, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr(engine, "_run_structured", fake_structured)
+    lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
+    source = SourceDocument(path=source_path, kind=SourceKind.JOKCHEK)
+
+    result = engine.synthesize_direct(lecture, [], [source])
+
+    assert result is sentinel
+    assert captured["files"] == [source_path]
+    assert captured["inline_extracted_text"] is True
+    assert captured["preferred_model"] == "gpt-5.6-luna"
+    assert captured["timeout_seconds"] == 480
+    assert "족첵: 족첵.pdf" in captured["prompt"]
 
 
 def test_codex_engine_falls_back_when_default_model_is_at_capacity(

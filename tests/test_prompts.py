@@ -1,5 +1,5 @@
 from prestudy.models import LectureRequest, SourceKind
-from prestudy.prompts import digest_prompt, synthesis_prompt
+from prestudy.prompts import direct_synthesis_prompt, digest_prompt, synthesis_prompt
 
 
 def test_lecture_material_prompt_uses_material_for_pages_but_not_title():
@@ -35,3 +35,18 @@ def test_jokchek_remains_page_basis_when_material_is_not_selected():
     synthesis = synthesis_prompt(lecture, "[]", has_lecture_material=False)
 
     assert "표시 페이지는 족첵 속 강의자료 부분을 기준" in synthesis
+
+
+def test_direct_synthesis_reads_current_sources_without_intermediate_digest():
+    lecture = LectureRequest(course="약리학", professor="김자은", topic="약동학")
+
+    prompt = direct_synthesis_prompt(
+        lecture,
+        "[]",
+        "- 족첵: 현재.pdf\n- 선배 써머리: 과거.pdf",
+    )
+
+    assert "한 번의 분석으로 최종 노트를 완성" in prompt
+    assert "페이지별 텍스트 추출본을 먼저 직접 읽고" in prompt
+    assert "족첵: 현재.pdf" in prompt
+    assert "제목은 족첵 메타데이터를 유지" in prompt

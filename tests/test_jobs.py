@@ -35,6 +35,18 @@ class FakeService:
             type(self).active -= 1
 
 
+def test_job_manager_defaults_to_four_parallel_lecture_jobs(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("PRESTUDY_JOB_WORKERS", raising=False)
+    manager = JobManager(
+        drive_output_root=None,
+        state_path=tmp_path / "jobs.json",
+        history_output_root=tmp_path / "output",
+    )
+
+    assert manager.max_workers == 4
+    manager.executor.shutdown(wait=True)
+
+
 def test_job_manager_runs_multiple_jobs_without_blocking(tmp_path: Path, monkeypatch):
     FakeService.active = 0
     FakeService.max_active = 0

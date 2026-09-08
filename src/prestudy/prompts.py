@@ -5,7 +5,7 @@ from .models import LectureRequest, SourceKind, SummaryReliability
 
 PROMPT_VERSION = "2026-08-31-exam-style-v1"
 CONTENT_DIGEST_VERSION = "2026-08-31-complete-content-v2"
-SYNTHESIS_VERSION = "2026-08-31-readable-core-notes-v2"
+SYNTHESIS_VERSION = "2026-09-08-direct-source-synthesis-v3"
 
 
 def digest_prompt(kind: SourceKind, lecture: LectureRequest, filename: str) -> str:
@@ -158,4 +158,31 @@ def synthesis_prompt(
 
 분석된 근거(JSON)
 {digest_json}
+""".strip()
+
+
+def direct_synthesis_prompt(
+    lecture: LectureRequest,
+    guide_digest_json: str,
+    source_manifest: str,
+    has_lecture_material: bool = False,
+) -> str:
+    base = synthesis_prompt(
+        lecture,
+        guide_digest_json,
+        has_lecture_material=has_lecture_material,
+    ).replace("분석된 근거(JSON)", "캐시된 학습가이드 근거(JSON)")
+    return f"""
+{base}
+
+이번 수업 원문 자료
+{source_manifest}
+
+빠른 직접 합성 규칙
+- 이번 수업의 족첵·강의자료·선배 써머리는 별도의 요약 JSON으로 축약하지 않았다.
+- 프롬프트 뒤에 제공되는 페이지별 텍스트 추출본을 먼저 직접 읽고 한 번의 분석으로 최종 노트를 완성한다.
+- 각 `===== PDF p.N =====` 표시는 해당 원본 PDF의 실제 뷰어 페이지다. citation과 source_range는 이 번호를 사용한다.
+- 텍스트가 비어 있거나 깨진 페이지, 표·그림·색 강조가 핵심인 페이지만 같은 작업 폴더의 원본 PDF를 시각적으로 확인한다.
+- 원문을 별도의 중간 분석문으로 다시 작성하지 말고 곧바로 StudyGuide 결과를 만든다.
+- 자료 우선순위와 범위 규칙은 위 작성 규칙을 그대로 따른다. 특히 제목은 족첵 메타데이터를 유지한다.
 """.strip()

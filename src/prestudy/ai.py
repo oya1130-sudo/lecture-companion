@@ -15,12 +15,12 @@ from pydantic import BaseModel
 from pypdf import PdfReader
 
 from .models import LectureRequest, SourceDigest, SourceDocument, SourceKind, StudyGuide
-from .prompts import digest_prompt, synthesis_prompt
+from .prompts import direct_synthesis_prompt, digest_prompt, synthesis_prompt
 from .storage import WORK_ROOT
 
 
 Progress = Callable[[str], None]
-_CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "3")))
+_CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "4")))
 _CODEX_SLOTS = threading.BoundedSemaphore(_CODEX_CONCURRENCY)
 _REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
 _CAPACITY_RETRIES = max(1, int(os.environ.get("PRESTUDY_CAPACITY_RETRIES", "3")))
@@ -31,6 +31,10 @@ _CAPACITY_FALLBACK_MODEL = os.environ.get(
 _PROGRESS_HEARTBEAT_SECONDS = max(
     10,
     int(os.environ.get("PRESTUDY_CODEX_HEARTBEAT_SECONDS", "60")),
+)
+_INLINE_EXTRACTED_MAX_CHARS = max(
+    0,
+    int(os.environ.get("PRESTUDY_INLINE_EXTRACTED_MAX_CHARS", "300000")),
 )
 
 
@@ -125,7 +129,7 @@ class CodexStudyEngine:
             1,
             synthesis_timeout_seconds
             if synthesis_timeout_seconds is not None
-            else int(os.environ.get("PRESTUDY_SYNTHESIS_TIMEOUT_SECONDS", "600")),
+            else int(os.environ.get("PRESTUDY_SYNTHESIS_TIMEOUT_SECONDS", "480")),
         )
         self.check_subscription_login()
 
@@ -159,6 +163,7 @@ class CodexStudyEngine:
         progress: Progress = lambda _: None,
         preferred_model: str | None = None,
         timeout_seconds: int | None = None,
+        inline_extracted_text: bool = False,
     ):
         # Codex may leave rendered PDF previews with restrictive Windows ACLs.
         # Keep each isolated run directory instead of letting TemporaryDirectory
@@ -171,6 +176,7 @@ class CodexStudyEngine:
             root = Path(temporary)
             copied_names: list[str] = []
             extracted_names: list[str] = []
+            extracted_blocks: list[str] = []
             for index, source in enumerate(files or [], 1):
                 destination = root / f"{index:02d}_{source.name}"
                 shutil.copy2(source, destination)
@@ -181,8 +187,13 @@ class CodexStudyEngine:
                     for page_number, page in enumerate(reader.pages, 1):
                         page_text.append(f"\n===== PDF p.{page_number} =====\n{page.extract_text() or ''}")
                     extracted = destination.with_suffix(".extracted.txt")
-                    extracted.write_text("".join(page_text), encoding="utf-8")
+                    extracted_text = "".join(page_text)
+                    extracted.write_text(extracted_text, encoding="utf-8")
                     extracted_names.append(extracted.name)
+                    extracted_blocks.append(
+                        f"<pdf_text name={json.dumps(source.name, ensure_ascii=False)}>\n"
+                        f"{extracted_text}\n</pdf_text>"
+                    )
                 except Exception:
                     # Scanned or malformed PDFs remain available for visual inspection.
                     pass
@@ -205,6 +216,29 @@ class CodexStudyEngine:
                     "PyMuPDF(fitz)로 해당 페이지를 이미지로 렌더링해 시각적으로 확인하라. "
                     "관련 페이지를 건너뛰지 말고 PDF 뷰어 기준 페이지 번호를 보존하라."
                 )
+                if inline_extracted_text and extracted_blocks:
+                    inline_blocks: list[str] = []
+                    inline_chars = 0
+                    for block in extracted_blocks:
+                        if inline_chars + len(block) > _INLINE_EXTRACTED_MAX_CHARS:
+                            break
+                        inline_blocks.append(block)
+                        inline_chars += len(block)
+                    if inline_blocks:
+                        progress(
+                            f"페이지 원문 {inline_chars:,}자를 바로 전달해 "
+                            "파일 재탐색 시간을 줄입니다."
+                        )
+                        file_context += (
+                            "\n\n아래는 로컬에서 미리 추출한 페이지별 원문이다. "
+                            "도구로 같은 텍스트 파일을 다시 읽지 말고 이 내용을 우선 사용하라.\n\n"
+                            + "\n\n".join(inline_blocks)
+                        )
+                    if len(inline_blocks) < len(extracted_blocks):
+                        progress(
+                            "긴 원문 일부는 토큰 낭비를 막기 위해 작업 폴더의 "
+                            "페이지별 추출본으로 제공합니다."
+                        )
 
             base_command = [
                 self.executable,
@@ -384,4 +418,44 @@ class CodexStudyEngine:
             progress=progress,
             preferred_model=self.codex_model or _CAPACITY_FALLBACK_MODEL or None,
             timeout_seconds=self.synthesis_timeout_seconds,
+        )
+
+    def synthesize_direct(
+        self,
+        lecture: LectureRequest,
+        guide_digests: list[SourceDigest],
+        sources: list[SourceDocument],
+        progress: Progress = lambda _: None,
+    ) -> StudyGuide:
+        priority = {
+            SourceKind.LECTURE: 0,
+            SourceKind.JOKCHEK: 1,
+            SourceKind.SUMMARY: 2,
+        }
+        ordered_sources = sorted(
+            sources,
+            key=lambda source: priority.get(source.kind, 3),
+        )
+        guide_payload = json.dumps(
+            [item.model_dump(mode="json") for item in guide_digests],
+            ensure_ascii=False,
+        )
+        source_manifest = "\n".join(
+            f"- {source.kind.value}: {source.path.name}" for source in ordered_sources
+        )
+        return self._run_structured(
+            direct_synthesis_prompt(
+                lecture,
+                guide_payload,
+                source_manifest,
+                has_lecture_material=any(
+                    source.kind == SourceKind.LECTURE for source in sources
+                ),
+            ),
+            StudyGuide,
+            files=[source.path for source in ordered_sources],
+            progress=progress,
+            preferred_model=self.codex_model or _CAPACITY_FALLBACK_MODEL or None,
+            timeout_seconds=self.synthesis_timeout_seconds,
+            inline_extracted_text=True,
         )

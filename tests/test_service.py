@@ -50,11 +50,14 @@ class FakeEngine:
 
     def __init__(self) -> None:
         self.synthesis_count = 0
+        self.direct_sources = []
+        self.analysis_count = 0
         self.active = 0
         self.max_active = 0
         self.lock = threading.Lock()
 
     def analyze_source(self, source, lecture, progress):
+        self.analysis_count += 1
         with self.lock:
             self.active += 1
             self.max_active = max(self.max_active, self.active)
@@ -67,8 +70,16 @@ class FakeEngine:
         self.synthesis_count += 1
         return _guide()
 
+    def synthesize_direct(self, lecture, guide_digests, sources, progress=lambda _: None):
+        self.synthesis_count += 1
+        self.direct_sources = list(sources)
+        return _guide()
 
-def test_sources_run_in_parallel_and_finished_guide_is_reused(tmp_path: Path, monkeypatch):
+
+def test_current_sources_use_one_direct_call_and_finished_guide_is_reused(
+    tmp_path: Path,
+    monkeypatch,
+):
     sources = []
     for index in range(3):
         path = tmp_path / f"source-{index}.pdf"
@@ -95,8 +106,9 @@ def test_sources_run_in_parallel_and_finished_guide_is_reused(tmp_path: Path, mo
     service.create(lecture, sources, tmp_path / "first.html")
     service.create(lecture, sources, tmp_path / "second.html")
 
-    assert engine.max_active >= 2
+    assert engine.analysis_count == 0
     assert engine.synthesis_count == 1
+    assert engine.direct_sources == sources
     assert len(rendered) == 2
     assert rendered[0][1] == sources
     assert (tmp_path / "second.html").is_file()

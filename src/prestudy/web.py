@@ -34,9 +34,9 @@ RELIABILITY_LABELS = {
     "잘 모름": SummaryReliability.UNKNOWN,
 }
 
-CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "3")))
+CODEX_CONCURRENCY = max(1, int(os.environ.get("PRESTUDY_CODEX_CONCURRENCY", "4")))
 SYNTHESIS_TIMEOUT_SECONDS = max(
-    1, int(os.environ.get("PRESTUDY_SYNTHESIS_TIMEOUT_SECONDS", "600"))
+    1, int(os.environ.get("PRESTUDY_SYNTHESIS_TIMEOUT_SECONDS", "480"))
 )
 STAGE_LABELS = {
     "queued": "대기",
@@ -57,7 +57,7 @@ SPEED_PROFILES = {
 
 
 @st.cache_resource
-def _job_manager(config_version: str = "persistent-history-v5") -> JobManager:
+def _job_manager(config_version: str = "persistent-history-v6-fast-path") -> JobManager:
     # Bump config_version when shared worker construction changes so a hot
     # reload cannot keep an older JobManager instance alive.
     return JobManager(state_path=JOB_STATE_PATH, history_output_root=OUTPUT_ROOT)

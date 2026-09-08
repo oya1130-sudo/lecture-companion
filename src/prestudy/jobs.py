@@ -90,13 +90,16 @@ class _Job:
             return "preparing"
         if (
             "캐시 사용:" in message
+            or "원문 직접 사용:" in message
             or "병렬 분석 시작:" in message
             or "로컬 분석 준비 중" in message
             or "자료 분석 단계" in message
+            or "자료 준비 단계" in message
         ):
             return "analyzing"
         if (
             "강의 흐름별 수업 동반 노트 구성 중" in message
+            or "빠른 생성 ·" in message
             or "완성 노트 캐시 사용" in message
             or "최종 노트 합성" in message
         ):
@@ -116,7 +119,11 @@ class _Job:
             if next_stage is not None and next_stage != self.current_stage:
                 self.current_stage = next_stage
                 self.stage_started_at = now
-            if "캐시 사용:" in message or "분석 완료 (" in message:
+            if (
+                "캐시 사용:" in message
+                or "분석 완료 (" in message
+                or "원문 직접 사용:" in message
+            ):
                 self.source_completed = min(self.source_total, self.source_completed + 1)
             self.messages.append(message)
             self.messages = self.messages[-30:]
@@ -156,7 +163,7 @@ class JobManager:
         state_path: Path | str | None = None,
         history_output_root: Path | str | None = None,
     ) -> None:
-        workers = max(1, max_workers or int(os.environ.get("PRESTUDY_JOB_WORKERS", "3")))
+        workers = max(1, max_workers or int(os.environ.get("PRESTUDY_JOB_WORKERS", "4")))
         self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lecture-job")
         self.jobs: dict[str, _Job] = {}
         self.lock = threading.RLock()
