@@ -120,6 +120,8 @@ class JobRecord(BaseModel):
     messages: list[str]
     markdown_path: Path
     html_path: Path
+    course: str = ""
+    source_summary_path: Path | None = None
     drive_markdown_path: Path | None = None
     drive_html_path: Path | None = None
     error: str = ""

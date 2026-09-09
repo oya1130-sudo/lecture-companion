@@ -133,6 +133,8 @@ class JobManager:
             messages=[accepted_message],
             markdown_path=Path(),
             html_path=Path(),
+            course=request.course,
+            source_summary_path=request.summary_path,
             created_at=created_at,
             status_changed_at=created_at,
             events=[

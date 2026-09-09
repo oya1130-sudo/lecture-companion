@@ -67,6 +67,8 @@ def test_job_manager_runs_multiple_jobs_at_the_same_time(tmp_path: Path):
     assert [manager.get(job_id).status for job_id in ids] == ["완료", "완료"]
     for job_id in ids:
         record = manager.get(job_id)
+        assert record.course == "약리학"
+        assert record.source_summary_path == source
         assert record.started_at is not None
         assert record.finished_at is not None
         assert record.status_changed_at == record.events[-1].created_at

@@ -28,7 +28,14 @@ from .drive_sources import (
     transcript_upload_date,
     validate_drive_selection,
 )
-from .files import CURRENT_SUMMARY_EXTENSIONS, SUPPORTED_EXTENSIONS, TRANSCRIPT_EXTENSIONS, save_bytes
+from .files import (
+    CURRENT_SUMMARY_EXTENSIONS,
+    SUPPORTED_EXTENSIONS,
+    TRANSCRIPT_EXTENSIONS,
+    safe_filename,
+    save_bytes,
+    summed_output_stem,
+)
 from .jobs import JobManager
 from .models import JobRecord, ReferenceKind, SummaryRequest
 from .references import ReferenceLibrary
@@ -107,6 +114,75 @@ def _submit_request(manager: JobManager, request: SummaryRequest) -> None:
 
 
 _TERMINAL_JOB_STATUSES = {"완료", "실패", "중단됨"}
+_ACTIVE_JOB_STATUSES = {"대기", "생성 중", "Drive 저장 중"}
+_FAILED_JOB_STATUSES = {"실패", "중단됨"}
+_SUMMARY_STATE_LABELS = {
+    "complete": "✅ 완료",
+    "in_progress": "⏳ 진행 중",
+    "drive_retry": "⚠️ Drive 저장 필요",
+    "retry": "⚠️ 재시도 필요",
+    "not_started": "○ 미생성",
+}
+
+
+def _normalized_path_key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _record_course(record: JobRecord) -> str:
+    if record.course.strip():
+        return record.course.strip()
+    label_course, separator, _ = record.label.partition(" · ")
+    if separator:
+        return label_course.strip()
+    for candidate in (record.html_path, record.drive_html_path):
+        if candidate is not None and candidate.name:
+            return candidate.parent.name
+    return ""
+
+
+def _record_matches_summary(
+    record: JobRecord,
+    summary_path: Path,
+    course: str,
+    expected_html_name: str,
+) -> bool:
+    if _record_course(record).casefold() != course.casefold():
+        return False
+    if (
+        record.source_summary_path is not None
+        and _normalized_path_key(record.source_summary_path)
+        == _normalized_path_key(summary_path)
+    ):
+        return True
+    return any(
+        candidate is not None
+        and candidate.name.casefold() == expected_html_name.casefold()
+        for candidate in (record.html_path, record.drive_html_path)
+    )
+
+
+def _summary_run_state(
+    summary_path: Path,
+    course: str,
+    records: list[JobRecord],
+    output_root: Path,
+) -> str:
+    expected_html_name = f"{summed_output_stem(summary_path.name)}.html"
+    matching = [
+        record
+        for record in records
+        if _record_matches_summary(record, summary_path, course, expected_html_name)
+    ]
+    local_html = output_root / safe_filename(course) / expected_html_name
+
+    if any(record.status in _ACTIVE_JOB_STATUSES for record in matching):
+        return "in_progress"
+    if any(record.status == "완료" for record in matching):
+        return "complete"
+    if any(record.status in _FAILED_JOB_STATUSES for record in matching):
+        return "drive_retry" if local_html.is_file() else "retry"
+    return "complete" if local_html.is_file() else "not_started"
 
 
 def _format_duration(seconds: float | None) -> str:
@@ -186,10 +262,19 @@ def _new_note_tab(paths: StoragePaths, manager: JobManager) -> None:
             st.warning(f"00 학습자료의 {course} 폴더에서 요약본을 찾지 못했습니다.")
             return
         summary_by_path = {str(item.path): item for item in summaries}
+        job_records = manager.all()
+        summary_states = {
+            value: _summary_run_state(item.path, course, job_records, paths.outputs)
+            for value, item in summary_by_path.items()
+        }
+        st.caption("✅ 완료 · ⏳ 진행 중 · ⚠️ 저장/재시도 필요 · ○ 미생성")
         selected_summary_path = st.selectbox(
             "수업 요약본",
             list(summary_by_path),
-            format_func=lambda value: summary_by_path[value].label,
+            format_func=lambda value: (
+                f"{_SUMMARY_STATE_LABELS[summary_states[value]]} · "
+                f"{summary_by_path[value].label}"
+            ),
             key=f"drive-summary-{course}",
         )
         selected_summary = summary_by_path[selected_summary_path]
