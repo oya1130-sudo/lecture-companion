@@ -24,12 +24,13 @@ OUTPUT_FOLDER_NAME = "summed"
 def _mounted_my_drive_candidates() -> list[Path]:
     candidates = []
     for letter in string.ascii_uppercase:
-        path = Path(f"{letter}:/내 드라이브")
-        try:
-            if path.is_dir():
-                candidates.append(path)
-        except OSError:
-            continue
+        for folder_name in ("내 드라이브", "My Drive"):
+            path = Path(f"{letter}:/{folder_name}")
+            try:
+                if path.is_dir():
+                    candidates.append(path)
+            except OSError:
+                continue
     return candidates
 
 
@@ -63,7 +64,20 @@ def default_mounted_output() -> Path | None:
 
     candidates = _mounted_my_drive_candidates()
     if not candidates:
+        for letter in string.ascii_uppercase:
+            drive_path = Path(f"{letter}:/")
+            try:
+                if drive_path.is_dir() and "google drive" in _volume_label(drive_path).casefold():
+                    for sub in ("내 드라이브", "My Drive", ""):
+                        target = drive_path / sub if sub else drive_path
+                        if target.is_dir():
+                            candidates.append(target)
+            except OSError:
+                continue
+
+    if not candidates:
         return None
+
     gmail = next(
         (
             candidate
@@ -82,12 +96,23 @@ def default_mounted_output() -> Path | None:
 
 class MountedDrivePublisher:
     def __init__(self, root: Path | None = None) -> None:
-        self.root = root if root is not None else default_mounted_output()
+        self._explicit_root = root
+
+    @property
+    def root(self) -> Path | None:
+        if self._explicit_root is not None:
+            return self._explicit_root
+        return default_mounted_output()
+
+    @root.setter
+    def root(self, value: Path | None) -> None:
+        self._explicit_root = value
 
     def publish(self, paths: list[Path], course: str) -> list[Path]:
-        if self.root is None:
+        current_root = self.root
+        if current_root is None:
             raise FileNotFoundError("Gmail Google Drive가 이 PC에 연결되어 있지 않습니다.")
-        target_root = self.root / safe_filename(course)
+        target_root = current_root / safe_filename(course)
         target_root.mkdir(parents=True, exist_ok=True)
         published = []
         for source in paths:

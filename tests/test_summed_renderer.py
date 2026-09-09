@@ -69,3 +69,40 @@ def test_renderers_remove_images_and_escape_html(tmp_path: Path):
     assert '<details class="quiz-item">' in html_text
     assert "핵심 병독성 인자는 &lt;무엇&gt;인가?" in html_text
     assert "독소와 부착 인자를 구분한다." in html_text
+
+
+def test_html_collapsible_toc_and_fluid_layout(tmp_path: Path):
+    html = tmp_path / "note_layout.html"
+    request = _request(tmp_path)
+    render_html(_note(), request, ["요약.md"], html)
+    text = html.read_text(encoding="utf-8")
+
+    assert 'id="toggle-toc"' in text
+    assert "☰ 목차" in text
+    assert "toc-collapsed" in text
+    assert "width:100%" in text
+    assert "grid-template-columns:minmax(0,1fr)!important" in text
+
+
+def test_migrate_existing_html_file(tmp_path: Path):
+    from scripts.migrate_html_ui import migrate_file
+
+    legacy_html = tmp_path / "legacy.html"
+    legacy_html.write_text(
+        '<!doctype html><html><head><style>.layout{max-width:1240px}</style></head>'
+        '<body><header class="topbar"><div class="brand">summed</div></header>'
+        '<div class="layout"><nav class="side"><a href="#1">1</a></nav>'
+        '<main class="content">text</main></div>'
+        "<script>const key='summed-abc123';</script></body></html>",
+        encoding="utf-8",
+    )
+
+    upgraded = migrate_file(legacy_html)
+    assert upgraded is True
+
+    result = legacy_html.read_text(encoding="utf-8")
+    assert 'id="toggle-toc"' in result
+    assert "☰ 목차" in result
+    assert "toc-collapsed" in result
+    assert "width:100%" in result
+    assert "abc123" in result

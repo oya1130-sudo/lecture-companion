@@ -14,3 +14,8 @@
 4. Never copy or store the user's Codex credentials, login tokens, or authentication files in this project.
 5. SUMMED runs in the user's trusted local environment; do not silently redesign it as an untrusted or multi-tenant service.
 6. Read `SUMMED.md` and the latest file in `docs/handoffs/` before resuming SUMMED development.
+
+## Execution & Interaction Policy
+
+- All actions are set to "Always Allow" / Turbo mode.
+- Proceed autonomously: do not prompt the user for intermediate confirmation, modal question tools (`ask_question`), or plan approval before executing tasks unless an unrecoverable fatal ambiguity arises.
