@@ -2,9 +2,9 @@
 
 ## SUMMED development ownership
 
-- Code implementation, code modification, and test execution for SUMMED (`src/summed/` and SUMMED-specific tests and launchers) are performed in Antigravity.
-- This ownership rule does not apply to prestudy (`src/prestudy/`), which may be developed and tested by Codex.
-- Outside Antigravity, agents should restrict SUMMED work to review, status reporting, documentation, and handoff unless the user explicitly changes this invariant.
+- All SUMMED work, including implementation, modification, testing, review, status reporting, documentation, and handoff, is performed in Codex.
+- Antigravity and other agents must not perform SUMMED work unless the user explicitly changes this invariant again.
+- prestudy (`src/prestudy/`) may also be developed and tested by Codex.
 
 ## SUMMED architecture invariants
 
