@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import socket
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
@@ -113,6 +113,12 @@ def _output_filename(lecture_date: date, course: str, professor: str, topic: str
         _safe_name(topic),
     )
     return f"{title} 수업동반노트.html"
+
+
+def _default_lecture_date(now: datetime | None = None) -> date:
+    current = now or datetime.now()
+    day_offset = 1 if current.hour >= 18 else 0
+    return current.date() + timedelta(days=day_offset)
 
 
 def _available_output_path(filename: str, manager: JobManager) -> Path:
@@ -694,7 +700,11 @@ def run() -> None:
 
     with st.form("lecture-job-form", clear_on_submit=True):
         col4, col5 = st.columns(2)
-        lecture_date = col4.date_input("강의일")
+        lecture_date = col4.date_input(
+            "강의일",
+            value=_default_lecture_date(),
+            key="lecture-date",
+        )
         reliability_label = col5.selectbox("선배 써머리 일치도", list(RELIABILITY_LABELS))
         submitted = st.form_submit_button("작업 큐에 추가", type="primary", width="stretch")
 

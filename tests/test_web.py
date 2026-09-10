@@ -79,6 +79,25 @@ def test_output_filename_uses_mmdd_and_readable_spaces():
     assert filename == "0831 예방의학 오창모 질병 및 사망, 건강수준의 측정 수업동반노트.html"
 
 
+def test_default_lecture_date_changes_at_6pm():
+    assert web._default_lecture_date(datetime(2026, 9, 10, 17, 59, 59)) == date(
+        2026, 9, 10
+    )
+    assert web._default_lecture_date(datetime(2026, 9, 10, 18, 0, 0)) == date(
+        2026, 9, 11
+    )
+    assert web._default_lecture_date(datetime(2026, 12, 31, 23, 59, 59)) == date(
+        2027, 1, 1
+    )
+
+
+def test_web_uses_evening_aware_default_lecture_date():
+    source = inspect.getsource(web.run)
+
+    assert "value=_default_lecture_date()" in source
+    assert 'key="lecture-date"' in source
+
+
 def test_web_uses_jokchek_metadata_without_manual_professor_or_topic_fields():
     source = inspect.getsource(web.run)
 
